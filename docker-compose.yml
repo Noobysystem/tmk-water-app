@@ -1,0 +1,10 @@
+﻿version: '3.8'
+services:
+  tmk_water_app:
+    build: .
+    container_name: tmk_water_app
+    restart: always
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./app.py:/app/app.py
