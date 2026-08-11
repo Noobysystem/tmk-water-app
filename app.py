@@ -62,8 +62,9 @@ if "transfer_M" not in st.session_state:
     st.session_state.transfer_M = None
 
 # Вкладки
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "🧪 Дозирование КИМ", 
+    "🛢 Приготовление раствора",
     "🔬 Мутность (ПЭ-5300ВИ)", 
     "⚙️ Настройка плунжера", 
     "📋 Сменный журнал"
@@ -150,85 +151,98 @@ with tab1:
         })
         st.toast("Запись добавлена в сменный журнал!")
 
-    # --- КАЛЬКУЛЯТОР ЗАТВОРЕНИЯ РАБОЧЕГО РАСТВОРА ПО РУЛЕТКЕ ---
-    st.markdown("---")
-    with st.expander("📏 Затворение коагулянта по рулетке (Расходный бак 2.8х2.8х2.4 м)", expanded=True):
-        st.caption("Расчет добавления концентрата и воды для сохранения целевой концентрации в резервуаре.")
-        
-        prep_col1, prep_col2 = st.columns(2)
-        
-        with prep_col1:
-            h_measured_cm = st.number_input(
-                "Расстояние от края бака до зеркала воды (по рулетке), см", 
-                value=100.0, 
-                step=5.0, 
-                min_value=0.0, 
-                max_value=240.0,
-                key="h_measured"
-            )
-            
-            C_target_prep = st.radio(
-                "Целевая концентрация раствора в резервуаре, %",
-                options=[1.0, 1.2],
-                index=0,
-                horizontal=True,
-                key="c_prep_radio"
-            )
-        
-        with prep_col2:
-            C_tov = st.number_input(
-                "Содержание Al³+ в еврокубе (из паспорта № 644), %", 
-                value=9.2, 
-                step=0.1, 
-                key="c_tov_p"
-            )
-            rho_tov = st.number_input(
-                "Плотность концентрата в еврокубе, г/см³", 
-                value=1.24, 
-                step=0.01, 
-                key="rho_tov_p"
-            )
-
-        AREA_TANK = 2.8 * 2.8  # 7.84 м²
-        V_PER_CM = AREA_TANK * 10.0  # 78.4 литра на 1 см
-        V_TOTAL_TANK = AREA_TANK * 2.4 * 1000.0  # 18816 литров
-
-        V_add_l = h_measured_cm * V_PER_CM
-        V_remain_l = V_TOTAL_TANK - V_add_l
-        
-        if V_add_l > 0 and C_tov > 0:
-            rho_work = 1.010 if C_target_prep == 1.0 else 1.012
-            M_dry_req = V_add_l * (C_target_prep / 100.0) * rho_work
-            M_tov_req = M_dry_req / (C_tov / 100.0)
-            V_tov_req_l = M_tov_req / rho_tov
-            V_water_add_l = V_add_l - V_tov_req_l
-
-            st.markdown(f"### 📊 Результат расчета (Целевая концентрация: **{C_target_prep}%**):")
-            
-            m_col1, m_col2, m_col3 = st.columns(3)
-            m_col1.metric("Остаток раствора в баке", f"{V_remain_l:.0f} л", help=f"Уровень остатка: {240 - h_measured_cm:.0f} см от дна")
-            m_col2.metric("Общий объем доведения", f"{V_add_l:.0f} л")
-            m_col3.metric("КОНЦЕНТРАТ из Еврокуба", f"{V_tov_req_l:.1f} л", delta=f"{M_tov_req:.1f} кг")
-
-            st.info(f"💦 **Долить обычной воды:** **{V_water_add_l:.0f} литров**")
-
-            st.markdown("#### 📝 Инструкция для машиниста:")
-            st.markdown(f"""
-            1. Замерить по шкале еврокуба и залить в расходный бак **{V_tov_req_l:.0f} л** (или **{M_tov_req:.0f} кг**) концентрата «Эпоха».
-            2. Долить обычную воду до верхнего края резервуара (добавить **{V_water_add_l:.0f} л** воды).
-            3. Включить **барботаж** и перемешивать весь резервуар не менее 15–20 минут для выравнивания плотности по всему объему.
-            """)
-
 # =============================================================================
-# ВКЛАДКА 2: МУТНОСТЬ (ПЭ-5300ВИ)
+# ВКЛАДКА 2: КАЛЬКУЛЯТОР РАСХОДА КОАГУЛЯНТА ДЛЯ ПРИГОТОВЛЕНИЯ РАСТВОРА
 # =============================================================================
 with tab2:
+    st.subheader("Калькулятор расхода коагулянта для приготовления раствора")
+    st.caption("Расчет объемов концентрата из еврокуба и обычной воды для расходного резервуара 2.8 х 2.8 х 2.4 м.")
+
+    prep_col1, prep_col2 = st.columns(2)
+    
+    with prep_col1:
+        h_measured_cm = st.number_input(
+            "Расстояние от края бака до зеркала воды (по рулетке), см", 
+            value=100.0, 
+            step=5.0, 
+            min_value=0.0, 
+            max_value=240.0,
+            key="prep_h_measured"
+        )
+        
+        C_target_prep = st.radio(
+            "Целевая концентрация раствора в резервуаре, %",
+            options=[1.0, 1.2],
+            index=0,
+            horizontal=True,
+            key="prep_c_target_radio"
+        )
+    
+    with prep_col2:
+        C_tov = st.number_input(
+            "Содержание Al³+ в еврокубе (из паспорта № 644), %", 
+            value=9.2, 
+            step=0.1, 
+            key="prep_c_tov"
+        )
+        rho_tov = st.number_input(
+            "Плотность концентрата в еврокубе, г/см³", 
+            value=1.24, 
+            step=0.01, 
+            key="prep_rho_tov"
+        )
+
+    # Геометрические параметры бака
+    AREA_TANK = 2.8 * 2.8  # 7.84 м²
+    V_PER_CM = AREA_TANK * 10.0  # 78.4 л на 1 см
+    V_TOTAL_TANK = AREA_TANK * 2.4 * 1000.0  # 18 816 литров
+
+    V_add_l = h_measured_cm * V_PER_CM
+    V_remain_l = V_TOTAL_TANK - V_add_l
+    
+    rho_work = 1.010 if C_target_prep == 1.0 else 1.012
+    M_dry_req = V_add_l * (C_target_prep / 100.0) * rho_work
+    M_tov_req = M_dry_req / (C_tov / 100.0)
+    V_tov_req_l = M_tov_req / rho_tov
+    V_water_add_l = V_add_l - V_tov_req_l
+
+    if st.button("РАССЧИТАТЬ И ЗАПИСАТЬ В ЖУРНАЛ", key="btn_calc_prep_tab"):
+        st.markdown(f"### 📊 Результат расчета (Целевая концентрация: **{C_target_prep}%**):")
+        
+        m_col1, m_col2, m_col3 = st.columns(3)
+        m_col1.metric("Остаток раствора в баке", f"{V_remain_l:.0f} л", help=f"Уровень остатка: {240 - h_measured_cm:.0f} см от дна")
+        m_col2.metric("Общий объем доведения", f"{V_add_l:.0f} л")
+        m_col3.metric("КОНЦЕНТРАТ из Еврокуба", f"{V_tov_req_l:.1f} л", delta=f"{M_tov_req:.1f} кг")
+
+        st.info(f"💦 **Долить обычной воды:** **{V_water_add_l:.0f} литров**")
+
+        st.markdown("#### 📝 Инструкция для машиниста:")
+        st.markdown(f"""
+        1. Замерить по шкале еврокуба и залить в расходный бак **{V_tov_req_l:.0f} л** (или **{M_tov_req:.0f} кг**) концентрата «Эпоха».
+        2. Долить обычную воду до верхнего края резервуара (добавить **{V_water_add_l:.0f} л** воды).
+        3. Включить **барботаж** и перемешивать весь резервуар не менее 15–20 минут для выравнивания плотности по всему объему.
+        """)
+
+        # Запись результатов затворения в журнал
+        st.session_state.journal.append({
+            "Время": datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
+            "Модуль": "Приготовление раствора",
+            "Входные данные": f"Замер={h_measured_cm:.0f} см, C_цель={C_target_prep}%, Al³+={C_tov}%",
+            "Результат": f"Концентрат: {V_tov_req_l:.1f} л ({M_tov_req:.1f} кг); Вода: {V_water_add_l:.0f} л; Долив: {V_add_l:.0f} л",
+            "Статус": "Приготовлено"
+        })
+        st.toast("Расчет приготовления раствора сохранен в сменный журнал!")
+
+# =============================================================================
+# ВКЛАДКА 3: МУТНОСТЬ (ПЭ-5300ВИ)
+# =============================================================================
+with tab3:
     st.subheader("Данные спектрофотометра (ПЭ-5300ВИ)")
-    D_val = st.number_input("Оптическая плотность (D), 520 нм / 50 мм", value=0.165, format="%.4f", key="t2_D")
+    D_val = st.number_input("Оптическая плотность (D), 520 нм / 50 мм", value=0.165, format="%.4f", key="t3_D")
     
     with st.expander("Градуировочные константы (ПНД Ф 14.1:2:4.213-05)"):
-        K_val = st.number_input("Коэффициент K", value=0.009347066, format="%.9f", key="t2_K")
-        D0_val = st.number_input("Смещение D₀", value=0.002417294, format="%.9f", key="t2_D0")
+        K_val = st.number_input("Коэффициент K", value=0.009347066, format="%.9f", key="t3_K")
+        D0_val = st.number_input("Смещение D₀", value=0.002417294, format="%.9f", key="t3_D0")
 
     if st.button("РАССЧИТАТЬ МУТНОСТЬ (C)", key="btn_calc_turbidity"):
         C_val = 0.0 if D_val <= D0_val else (D_val - D0_val) / K_val
@@ -258,26 +272,28 @@ with tab2:
         st.toast("Результат сохранен!")
 
 # =============================================================================
-# ВКЛАДКА 3: НАСТРОЙКА ПЛУНЖЕРА
+# ВКЛАДКА 4: НАСТРОЙКА ПЛУНЖЕРА
 # =============================================================================
-with tab3:
+with tab4:
     st.subheader("Показания КИМ АДКФ и лимба насоса Ареопаг")
-    S_curr = st.number_input("Текущее положение лимба плунжера (S), %", value=30.0, step=1.0, key="t3_S")
-    f_curr = st.number_input("Текущая частота КИМ / ПЧ (f), Гц", value=48.0, step=0.5, key="t3_f")
+    st.caption("Цена деления шкалы лимба: 0.5 мм. Шкала включает 60 делений.")
+    
+    S_curr = st.number_input("Текущее положение лимба плунжера (S), делений (0–60)", value=30.0, step=1.0, min_value=0.0, max_value=60.0, key="t4_S")
+    f_curr = st.number_input("Текущая частота КИМ / ПЧ (f), Гц", value=48.0, step=0.5, key="t4_f")
 
     if st.button("РАССЧИТАТЬ НОВОЕ ПОЛОЖЕНИЕ ЛИМБА", key="btn_calc_plunger"):
         target_f = 35.0
         S_new = S_curr * (f_curr / target_f)
-        S_new_clamped = min(max(round(S_new), 10), 100)
+        S_new_clamped = min(max(round(S_new), 0), 60)
 
-        st.metric("Рекомендуемый ход плунжера", f"{S_new_clamped}% (на лимбе)")
+        st.metric("Рекомендуемый ход плунжера", f"{S_new_clamped} делений (по шкале лимба)")
 
         if f_curr >= 42.0:
-            msg = f"⚠️ Высокая частота КИМ ({f_curr:.1f} Гц)! Увеличьте ход плунжера с {S_curr:.0f}% до {S_new_clamped}%, чтобы сбросить частоту к ~35 Гц."
+            msg = f"⚠️ Высокая частота КИМ ({f_curr:.1f} Гц)! Увеличьте ход плунжера с {S_curr:.0f} до {S_new_clamped} делений, чтобы сбросить частоту к ~35 Гц."
             st.warning(msg)
             status_log = "Требуется подстройка (высокая f)"
         elif f_curr <= 25.0:
-            msg = f"⚠️ Низкая частота КИМ ({f_curr:.1f} Гц)! Уменьшите ход плунжера с {S_curr:.0f}% до {S_new_clamped}%, чтобы поднять частоту к ~35 Гц."
+            msg = f"⚠️ Низкая частота КИМ ({f_curr:.1f} Гц)! Уменьшите ход плунжера с {S_curr:.0f} до {S_new_clamped} делений, чтобы поднять частоту к ~35 Гц."
             st.warning(msg)
             status_log = "Требуется подстройка (низкая f)"
         else:
@@ -288,16 +304,16 @@ with tab3:
         st.session_state.journal.append({
             "Время": datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
             "Модуль": "Настройка плунжера",
-            "Входные данные": f"S={S_curr:.0f}%, f={f_curr:.1f} Гц",
-            "Результат": f"Реком. ход плунжера: {S_new_clamped}%",
+            "Входные данные": f"S={S_curr:.0f} дел., f={f_curr:.1f} Гц",
+            "Результат": f"Реком. ход плунжера: {S_new_clamped} дел.",
             "Статус": status_log
         })
         st.toast("Запись добавлена в сменный журнал!")
 
 # =============================================================================
-# ВКЛАДКА 4: СМЕННЫЙ ЖУРНАЛ
+# ВКЛАДКА 5: СМЕННЫЙ ЖУРНАЛ
 # =============================================================================
-with tab4:
+with tab5:
     st.subheader("Записи сменного журнала")
     if st.session_state.journal:
         df_journal = pd.DataFrame(st.session_state.journal)
