@@ -2,3 +2,8 @@
 *.pyc
 *.xlsx
 *.csv
+
+# Исключения PyInstaller для Windows-версии
+desktop/build/
+desktop/dist/
+*.spec
