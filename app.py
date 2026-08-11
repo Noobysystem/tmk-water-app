@@ -60,7 +60,7 @@ if "journal" not in st.session_state:
 if "transfer_M" not in st.session_state:
     st.session_state.transfer_M = None
 
-# Инициализация результатов расчетов для разделения кнопок
+# Инициализация результатов расчетов
 if "res_tab1" not in st.session_state:
     st.session_state.res_tab1 = None
 if "res_tab2" not in st.session_state:
@@ -110,6 +110,17 @@ with tab1:
         M_fin = st.number_input("Показатель М (Готовая вода)", value=default_M_fin, step=0.1, key="t1_M_fin")
         D_coag_curr = st.number_input("Текущая доза коагулянта, мг/л", value=13.8, step=0.1, key="t1_D_coag")
         C_coag = st.number_input("Концентрация коагулянта, %", value=1.0, step=0.1, key="t1_C_coag")
+        
+        # Настраиваемое соотношение коагулянт / флокулянт
+        ratio_coag_floc = st.number_input(
+            "Пропорция Коагулянт / Флокулянт (1 : N)", 
+            value=22.0, 
+            step=1.0, 
+            min_value=10.0, 
+            max_value=40.0, 
+            help="Укажите отношение дозы коагулянта к дозе флокулянта. По умолчанию 22:1",
+            key="t1_ratio"
+        )
 
     if st.button("РАССЧИТАТЬ ДОЗИРОВКУ", key="btn_calc_dosing"):
         rho_coag = 1.010 if C_coag <= 1.0 else 1.013
@@ -126,10 +137,11 @@ with tab1:
         else:
             D_coag_target = D_coag_curr
 
-        D_floc_target = round(D_coag_target / 22.0, 2)
+        # Расчет дозы флокулянта по выбранной пропорции
+        D_floc_target = round(D_coag_target / ratio_coag_floc, 2)
         if D_floc_target > 0.75:
             D_floc_target = 0.75
-            alerts.append("• Доза флокулянта ограничена 0.75 мг/л (защита фильтров).")
+            alerts.append("• Доза флокулянта ограничена 0.75 мг/л (защита песчаных фильтров).")
 
         q_coag = (Q * D_coag_target) / (10 * C_coag * rho_coag)
         q_floc = (Q * D_floc_target) / (10 * C_floc * rho_floc)
@@ -142,11 +154,12 @@ with tab1:
             "D_floc_target": D_floc_target,
             "q_coag": q_coag,
             "q_floc": q_floc,
+            "ratio_coag_floc": ratio_coag_floc,
             "alerts": alerts,
             "log_entry": {
                 "Время": datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
                 "Модуль": "Дозирование КИМ",
-                "Входные данные": f"Q={Q}, M_сыр={M_raw}, M_осв={M_clar}, M_гот={M_fin}",
+                "Входные данные": f"Q={Q}, M_сыр={M_raw}, M_осв={M_clar}, Соотношение=1:{ratio_coag_floc:.0f}",
                 "Результат": f"Эпоха: {D_coag_target:.2f} мг/л ({q_coag:.1f} л/ч); ЭкоПлюс: {D_floc_target:.2f} мг/л ({q_floc:.1f} л/ч)",
                 "Статус": "Предупреждение" if alerts else "В норме"
             }
@@ -159,7 +172,7 @@ with tab1:
         st.subheader("Рекомендуемые параметры")
         r_col1, r_col2 = st.columns(2)
         r_col1.metric("Доза коагулянта ('Эпоха')", f"{res['D_coag_target']:.2f} мг/л")
-        r_col2.metric("Доза флокулянта ('ЭкоПлюс')", f"{res['D_floc_target']:.2f} мг/л")
+        r_col2.metric("Доза флокулянта ('ЭкоПлюс')", f"{res['D_floc_target']:.2f} мг/л", help=f"Расчет по пропорции 1:{res['ratio_coag_floc']:.0f}")
         r_col1.metric("Расход насоса коагулянта", f"{res['q_coag']:.1f} л/ч")
         r_col2.metric("Расход насоса флокулянта", f"{res['q_floc']:.1f} л/ч")
 
