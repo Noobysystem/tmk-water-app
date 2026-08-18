@@ -230,7 +230,7 @@ class TMKWaterAppDesktop:
             messagebox.showinfo("Журнал", "Запись приготовления раствора добавлена в сменный журнал!")
 
     # =========================================================================
-    # 3. ВКЛАДКА: ЗАМЕР ОСТАТКА В РЕЗЕРВУАРАХ
+    # 3. ВКЛАДКА: ЗАМЕР ОСТАТКА В РЕЗЕРВУАРАХ (В МЕТРАХ)
     # =========================================================================
     def build_tanks_tab(self):
         frame = ttk.LabelFrame(self.tab_tanks, text=" Параметры замера в резервуаре ", padding=15)
@@ -243,18 +243,13 @@ class TMKWaterAppDesktop:
             "Резервуар №1 (Склад мокрохранения 5.8х5.8 м, h=2.5..2.8 м)",
             "Резервуар №4 (Склад мокрохранения 2.8х5.8 м, h=2.7..3.4 м)"
         ]
-        self.cmb_tanks = ttk.Combobox(frame, textvariable=self.tank_var, values=tanks, state='readonly', width=50)
+        self.cmb_tanks = ttk.Combobox(frame, textvariable=self.tank_var, values=tanks, state='readonly', width=52)
         self.cmb_tanks.grid(row=0, column=1, padx=10, pady=4)
 
-        ttk.Label(frame, text="Замер рулеткой до воды (см):").grid(row=1, column=0, sticky='w', pady=4)
+        ttk.Label(frame, text="Замер рулеткой до воды, МЕТРЫ (м):").grid(row=1, column=0, sticky='w', pady=4)
         self.entry_tape = ttk.Entry(frame, width=15)
-        self.entry_tape.insert(0, "100")
+        self.entry_tape.insert(0, "1.00")
         self.entry_tape.grid(row=1, column=1, sticky='w', padx=10, pady=4)
-
-        ttk.Label(frame, text="Плотность реагента (т/м³):").grid(row=2, column=0, sticky='w', pady=4)
-        self.entry_density = ttk.Entry(frame, width=15)
-        self.entry_density.insert(0, "1.010")
-        self.entry_density.grid(row=2, column=1, sticky='w', padx=10, pady=4)
 
         btn_calc = ttk.Button(self.tab_tanks, text="РАССЧИТАТЬ ОСТАТОК", command=self.calc_tanks)
         btn_calc.pack(pady=8)
@@ -268,51 +263,58 @@ class TMKWaterAppDesktop:
     def calc_tanks(self):
         try:
             choice = self.tank_var.get()
-            h_tape = float(self.entry_tape.get())
-            rho = float(self.entry_density.get())
+            h_tape_m = float(self.entry_tape.get().replace(',', '.'))
 
             if "Машзал" in choice:
-                max_h = 250.0
+                max_h_m = 2.50
                 V_max = 19600.0
-                h_liq = max_h - h_tape
-                V = 2.8 * 2.8 * (h_liq / 100.0) * 1000.0
+                if h_tape_m > max_h_m:
+                    messagebox.showwarning("Внимание", f"Замер не может превышать глубину бака ({max_h_m} м)")
+                    return
+                h_liq_m = max_h_m - h_tape_m
+                V = 2.8 * 2.8 * h_liq_m * 1000.0
                 t_name = "Резервуар расходный (Машзал)"
             elif "№1" in choice:
-                max_h = 280.0
+                max_h_m = 2.80
+                if h_tape_m > max_h_m:
+                    messagebox.showwarning("Внимание", f"Замер не может превышать максимальную высоту бака ({max_h_m} м)")
+                    return
                 V_wedge = 0.5 * 5.8 * 5.8 * 0.3 * 1000.0
                 V_max = V_wedge + (5.8 * 5.8 * 2.5 * 1000.0)
-                y = (max_h - h_tape) / 100.0
-                if y <= 0.3:
-                    V = 0.5 * (5.8 * y / 0.3) * y * 5.8 * 1000.0
+                y_m = max_h_m - h_tape_m
+                if y_m <= 0.3:
+                    V = 0.5 * (5.8 * y_m / 0.3) * y_m * 5.8 * 1000.0
                 else:
-                    V = V_wedge + (5.8 * 5.8 * (y - 0.3) * 1000.0)
+                    V = V_wedge + (5.8 * 5.8 * (y_m - 0.3) * 1000.0)
                 t_name = "Резервуар №1 (Склад)"
             else:
-                max_h = 340.0
+                max_h_m = 3.40
+                if h_tape_m > max_h_m:
+                    messagebox.showwarning("Внимание", f"Замер не может превышать максимальную высоту бака ({max_h_m} м)")
+                    return
                 V_wedge = 0.5 * 2.8 * 5.8 * 0.7 * 1000.0
                 V_max = V_wedge + (2.8 * 5.8 * 2.7 * 1000.0)
-                y = (max_h - h_tape) / 100.0
-                if y <= 0.7:
-                    V = 0.5 * (2.8 * 5.8 / 0.7) * (y ** 2) * 1000.0
+                y_m = max_h_m - h_tape_m
+                if y_m <= 0.7:
+                    V = 0.5 * (2.8 * 5.8 / 0.7) * (y_m ** 2) * 1000.0
                 else:
-                    V = V_wedge + (2.8 * 5.8 * (y - 0.7) * 1000.0)
+                    V = V_wedge + (2.8 * 5.8 * (y_m - 0.7) * 1000.0)
                 t_name = "Резервуар №4 (Склад)"
 
             V_m3 = V / 1000.0
-            mass_t = V_m3 * rho
             pct = (V / V_max) * 100.0
+            h_liquid_m = max_h_m - h_tape_m
 
             res_text = f"Резервуар: {t_name}\n" \
-                       f"Фактический объем: {V:.0f} л ({V_m3:.2f} м³) | Макс: {V_max:.0f} л\n" \
-                       f"Масса жидкости: {mass_t:.2f} тонн (при ρ = {rho:.3f} т/м³)\n" \
-                       f"Уровень заполнения: {pct:.1f}%"
+                       f"Фактический объем: {V:.0f} л ({V_m3:.2f} м³) | Полная емкость: {V_max:.0f} л\n" \
+                       f"Уровень заполнения: {pct:.1f}% (глубина жидкости: {h_liquid_m:.2f} м)"
             self.lbl_tanks_res.config(text=res_text, foreground="#002050")
 
             self.last_res_tanks = {
                 "Время": datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
                 "Модуль": "Замер остатка в баках",
-                "Входные данные": f"{t_name}, Замер={h_tape:.0f} см",
-                "Результат": f"Объем: {V:.0f} л ({V_m3:.2f} м³); Масса: {mass_t:.2f} т; {pct:.1f}%",
+                "Входные данные": f"{t_name}, Замер={h_tape_m:.2f} м",
+                "Результат": f"Объем: {V:.0f} л ({V_m3:.2f} м³); Заполнение: {pct:.1f}%; Глубина: {h_liquid_m:.2f} м",
                 "Статус": "В норме"
             }
             self.btn_log_tanks.config(state='normal')
@@ -347,7 +349,7 @@ class TMKWaterAppDesktop:
 
     def calc_turbidity(self):
         try:
-            D = float(self.entry_D.get())
+            D = float(self.entry_D.get().replace(',', '.'))
             K, D0 = 0.009347066, 0.002417294
             C = 0.0 if D <= D0 else (D - D0) / K
             
@@ -406,8 +408,8 @@ class TMKWaterAppDesktop:
 
     def calc_plunger(self):
         try:
-            S = float(self.entry_S.get())
-            f = float(self.entry_f.get())
+            S = float(self.entry_S.get().replace(',', '.'))
+            f = float(self.entry_f.get().replace(',', '.'))
             
             S_new = min(max(round(S * (f / 35.0)), 0), 60)
             
@@ -517,16 +519,16 @@ class TMKWaterAppDesktop:
 ТМК СинТЗ — Энергоцех Чемезов
 
 ------------------------------------------------------------------------------
-1. ГЕОМЕТРИЯ РЕЗЕРВУАРОВ И ЗАМЕР ПО РУЛЕТКЕ
+1. ГЕОМЕТРИЯ РЕЗЕРВУАРОВ И ЗАМЕР ПО РУЛЕТКЕ (В МЕТРАХ)
 ------------------------------------------------------------------------------
 • Резервуар расходный (Машзал, 2.8 x 2.8 x 2.5 м):
-  Площадь: 7.84 м², Удельный объем: 1 см = 78.4 л, Полная емкость: 19 600 л.
+  Площадь: 7.84 м², Полная емкость: 19 600 л (19.60 м³).
 
 • Резервуар №1 (Склад мокрохранения, 5.8 x 5.8 м, высота 2.5...2.8 м):
-  Уклон дна: 30 см (0.3 м). Объем клина: 5 046 л. Полная емкость: 89 146 л.
+  Уклон дна: 0.30 м (30 см). Объем клина: 5 046 л. Полная емкость: 89 146 л (89.15 м³).
 
 • Резервуар №4 (Склад мокрохранения, 2.8 x 5.8 м, высота 2.7...3.4 м):
-  Уклон дна: 70 см (0.7 м). Объем клина: 5 684 л. Полная емкость: 49 532 л.
+  Уклон дна: 0.70 м (70 см). Объем клина: 5 684 л. Полная емкость: 49 532 л (49.53 м³).
 
 ------------------------------------------------------------------------------
 2. ДОЗИРОВАНИЕ РЕАГЕНТОВ И СООТНОШЕНИЕ 22:1
