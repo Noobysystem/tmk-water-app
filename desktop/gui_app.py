@@ -8,7 +8,7 @@ class TMKWaterAppDesktop:
     def __init__(self, root):
         self.root = root
         self.root.title("ТМК СинТЗ — Энергоцех Чемезов | Комплекс водоподготовки")
-        self.root.geometry("940x740")
+        self.root.geometry("960x760")
         
         # Хранилище журнала и последних результатов
         self.journal = []
@@ -45,7 +45,7 @@ class TMKWaterAppDesktop:
         self.tab_journal = ttk.Frame(self.notebook)
         self.tab_memo = ttk.Frame(self.notebook)
         
-        self.notebook.add(self.tab_dosing, text="🧪 Дозирование КИМ")
+        self.notebook.add(self.tab_dosing, text="🧪 Дозирование КИМ/УНИТОК")
         self.notebook.add(self.tab_prep, text="🛢 Приготовление раствора")
         self.notebook.add(self.tab_tanks, text="📏 Остаток в резервуарах")
         self.notebook.add(self.tab_turbidity, text="🔬 Мутность (ПЭ-5300ВИ)")
@@ -63,36 +63,41 @@ class TMKWaterAppDesktop:
         self.build_memo_tab()
 
     # =========================================================================
-    # 1. ВКЛАДКА: ДОЗИРОВАНИЕ КИМ
+    # 1. ВКЛАДКА: ДОЗИРОВАНИЕ КИМ / УНИТОК
     # =========================================================================
     def build_dosing_tab(self):
-        frame = ttk.LabelFrame(self.tab_dosing, text=" Показатели системы ", padding=15)
+        frame = ttk.LabelFrame(self.tab_dosing, text=" Показатели системы и кинетики УНИТОК ", padding=15)
         frame.pack(fill='x', padx=15, pady=10)
         
         ttk.Label(frame, text="Расход воды (Q), м³/ч:").grid(row=0, column=0, sticky='w', pady=4)
         self.entry_Q = ttk.Entry(frame, width=15)
-        self.entry_Q.insert(0, "431.9")
+        self.entry_Q.insert(0, "459.6")
         self.entry_Q.grid(row=0, column=1, padx=10, pady=4)
         
         ttk.Label(frame, text="Мутность Осветлители (М_осв):").grid(row=1, column=0, sticky='w', pady=4)
         self.entry_M_clar = ttk.Entry(frame, width=15)
-        self.entry_M_clar.insert(0, "18.1")
+        self.entry_M_clar.insert(0, "18.10")
         self.entry_M_clar.grid(row=1, column=1, padx=10, pady=4)
+
+        ttk.Label(frame, text="Скорость ПК УНИТОК (V):").grid(row=2, column=0, sticky='w', pady=4)
+        self.entry_V_pk = ttk.Entry(frame, width=15)
+        self.entry_V_pk.insert(0, "0.472")
+        self.entry_V_pk.grid(row=2, column=1, padx=10, pady=4)
         
-        ttk.Label(frame, text="Текущая доза коагулянта, мг/л:").grid(row=2, column=0, sticky='w', pady=4)
+        ttk.Label(frame, text="Текущая доза коагулянта, мг/л:").grid(row=3, column=0, sticky='w', pady=4)
         self.entry_D_curr = ttk.Entry(frame, width=15)
-        self.entry_D_curr.insert(0, "13.8")
-        self.entry_D_curr.grid(row=2, column=1, padx=10, pady=4)
+        self.entry_D_curr.insert(0, "14.74")
+        self.entry_D_curr.grid(row=3, column=1, padx=10, pady=4)
 
-        ttk.Label(frame, text="Концентрация коагулянта (%):").grid(row=3, column=0, sticky='w', pady=4)
+        ttk.Label(frame, text="Концентрация коагулянта (%):").grid(row=4, column=0, sticky='w', pady=4)
         self.entry_C_coag = ttk.Entry(frame, width=15)
-        self.entry_C_coag.insert(0, "1.0")
-        self.entry_C_coag.grid(row=3, column=1, padx=10, pady=4)
+        self.entry_C_coag.insert(0, "1.2")
+        self.entry_C_coag.grid(row=4, column=1, padx=10, pady=4)
 
-        ttk.Label(frame, text="Пропорция Коаг. / Флок. (1 : N):").grid(row=4, column=0, sticky='w', pady=4)
+        ttk.Label(frame, text="Пропорция Коаг. / Флок. (1 : N):").grid(row=5, column=0, sticky='w', pady=4)
         self.entry_ratio = ttk.Entry(frame, width=15)
         self.entry_ratio.insert(0, "22.0")
-        self.entry_ratio.grid(row=4, column=1, padx=10, pady=4)
+        self.entry_ratio.grid(row=5, column=1, padx=10, pady=4)
         
         btn_calc = ttk.Button(self.tab_dosing, text="РАССЧИТАТЬ ДОЗИРОВКУ", command=self.calc_dosing)
         btn_calc.pack(pady=8)
@@ -107,6 +112,7 @@ class TMKWaterAppDesktop:
         try:
             Q = float(self.entry_Q.get().replace(',', '.'))
             M_clar = float(self.entry_M_clar.get().replace(',', '.'))
+            V_pk = float(self.entry_V_pk.get().replace(',', '.'))
             D_curr = float(self.entry_D_curr.get().replace(',', '.'))
             C_coag = float(self.entry_C_coag.get().replace(',', '.'))
             ratio = float(self.entry_ratio.get().replace(',', '.'))
@@ -114,35 +120,64 @@ class TMKWaterAppDesktop:
             rho_coag = 1.010 if C_coag <= 1.0 else 1.013
             
             alerts = []
+            D_coag_ideal = D_curr
+
             if M_clar > 8.0:
                 delta_M = M_clar - 8.0
-                coag_step = round((delta_M / 2.0) * 0.3, 2)
-                D_coag = min(D_curr + max(coag_step, 0.5), 18.0)
-                alerts.append(f"Повышенная мутность (М={M_clar}). Доза увеличена.")
-            else:
-                D_coag = D_curr
+                coag_step = max((delta_M / 2.0) * 0.30, 0.5)
+                D_coag_ideal += coag_step
+                alerts.append(f"Повышенная мутность (М={M_clar:.1f}). Прибавка: +{coag_step:.2f} мг/л.")
 
-            D_floc = round(D_coag / ratio, 2)
+            if V_pk < 0.500:
+                D_coag_ideal += 0.90
+                alerts.append(f"⚠️ КРИТИЧЕСКИ НИЗКАЯ скорость ПК (V={V_pk:.3f} < 0.50)! Прибавка: +0.90 мг/л.")
+            elif V_pk < 0.800:
+                D_coag_ideal += 0.40
+                alerts.append(f"Скорость ПК (V={V_pk:.3f}) ниже оптимума (0.80). Прибавка: +0.40 мг/л.")
+
+            D_coag_ideal = min(round(D_coag_ideal, 2), 18.0)
+            delta_total = D_coag_ideal - D_curr
+
+            MAX_SAFE_STEP = 0.80
+            is_stepped = False
+            if delta_total > MAX_SAFE_STEP:
+                is_stepped = True
+                D_coag_apply = round(D_curr + MAX_SAFE_STEP, 2)
+                alerts.append(
+                    f"🛑 СТУПЕНЧАТЫЙ РАСЧЕТ: Залповый подъем опасен перезарядкой коллоидов и падением pH!\n"
+                    f"Установите сейчас (Шаг 1): {D_coag_apply:.2f} мг/л. Выдержите 15–20 мин перед выходом на цель ({D_coag_ideal:.2f} мг/л)."
+                )
+            else:
+                D_coag_apply = D_coag_ideal
+
+            D_floc = round(D_coag_apply / ratio, 2)
             if D_floc > 0.75:
                 D_floc = 0.75
                 alerts.append("Доза флокулянта ограничена 0.75 мг/л.")
 
-            q_coag = (Q * D_coag) / (10 * C_coag * rho_coag)
+            q_coag_step1 = (Q * D_coag_apply) / (10 * C_coag * rho_coag)
+            q_coag_final = (Q * D_coag_ideal) / (10 * C_coag * rho_coag)
             q_floc = (Q * D_floc) / (10 * 0.04 * 0.991)
 
-            res_text = f"Доза Эпоха: {D_coag:.2f} мг/л ({q_coag:.1f} л/ч)\n" \
-                       f"Доза ЭкоПлюс (1:{ratio:.0f}): {D_floc:.2f} мг/л ({q_floc:.1f} л/ч)"
+            if is_stepped:
+                res_text = f"👉 ШАГ 1 (Установить сейчас): {D_coag_apply:.2f} мг/л ({q_coag_step1:.1f} л/ч)\n" \
+                           f"🎯 Конечная цель: {D_coag_ideal:.2f} мг/л ({q_coag_final:.1f} л/ч)\n" \
+                           f"Доза ЭкоПлюс (1:{ratio:.0f}): {D_floc:.2f} мг/л ({q_floc:.1f} л/ч)"
+            else:
+                res_text = f"Реком. доза Эпоха: {D_coag_apply:.2f} мг/л ({q_coag_step1:.1f} л/ч)\n" \
+                           f"Реком. доза ЭкоПлюс (1:{ratio:.0f}): {D_floc:.2f} мг/л ({q_floc:.1f} л/ч)"
+
             if alerts:
                 res_text += "\n⚠️ " + "\n⚠️ ".join(alerts)
 
-            self.lbl_dosing_res.config(text=res_text, foreground="#107C41" if not alerts else "#D83B01")
+            self.lbl_dosing_res.config(text=res_text, foreground="#D83B01" if alerts else "#107C41")
             
             self.last_res_t1 = {
                 "Время": datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
-                "Модуль": "Дозирование КИМ",
-                "Входные данные": f"Q={Q}, M_осв={M_clar}, Соотношение=1:{ratio:.0f}",
-                "Результат": f"Эпоха: {D_coag:.2f} мг/л ({q_coag:.1f} л/ч); ЭкоПлюс: {D_floc:.2f} мг/л ({q_floc:.1f} л/ч)",
-                "Статус": "Предупреждение" if alerts else "В норме"
+                "Модуль": "Дозирование КИМ/УНИТОК",
+                "Входные данные": f"Q={Q:.1f}, M_осв={M_clar:.1f}, V_пк={V_pk:.3f}, Д_тек={D_curr:.2f}",
+                "Результат": f"Шаг 1: {D_coag_apply:.2f} мг/л ({q_coag_step1:.1f} л/ч); Цель: {D_coag_ideal:.2f} мг/л; ЭкоПлюс: {D_floc:.2f} мг/л",
+                "Статус": "Предупреждение (Ступенчато)" if is_stepped else ("Предупреждение" if alerts else "В норме")
             }
             self.btn_log_t1.config(state='normal')
         except ValueError:
@@ -166,7 +201,7 @@ class TMKWaterAppDesktop:
         self.entry_h.grid(row=0, column=1, padx=10, pady=4)
         
         ttk.Label(frame, text="Целевая концентрация раствора (%):").grid(row=1, column=0, sticky='w', pady=4)
-        self.var_conc = tk.DoubleVar(value=1.0)
+        self.var_conc = tk.DoubleVar(value=1.2)
         rb1 = ttk.Radiobutton(frame, text="1.0%", variable=self.var_conc, value=1.0)
         rb2 = ttk.Radiobutton(frame, text="1.2%", variable=self.var_conc, value=1.2)
         rb1.grid(row=1, column=1, sticky='w')
@@ -230,7 +265,7 @@ class TMKWaterAppDesktop:
             messagebox.showinfo("Журнал", "Запись приготовления раствора добавлена в сменный журнал!")
 
     # =========================================================================
-    # 3. ВКЛАДКА: ЗАМЕР ОСТАТКА В РЕЗЕРВУАРАХ (В МЕТРАХ)
+    # 3. ВКЛАДКА: ЗАМЕР ОСТАТКА В РЕЗЕРВУАРАХ
     # =========================================================================
     def build_tanks_tab(self):
         frame = ttk.LabelFrame(self.tab_tanks, text=" Параметры замера в резервуаре ", padding=15)
@@ -303,7 +338,7 @@ class TMKWaterAppDesktop:
 
             V_m3 = V / 1000.0
             pct = (V / V_max) * 100.0
-            h_liquid_m = max_depth_m_curr = (2.50 if "Машзал" in choice else (2.80 if "№1" in choice else 3.40)) - h_tape_m
+            h_liquid_m = (2.50 if "Машзал" in choice else (2.80 if "№1" in choice else 3.40)) - h_tape_m
 
             res_text = f"Резервуар: {t_name}\n" \
                        f"Фактический объем: {V:.0f} л ({V_m3:.2f} м³) | Полная емкость: {V_max:.0f} л\n" \
@@ -394,7 +429,7 @@ class TMKWaterAppDesktop:
         
         ttk.Label(frame, text="Текущая частота КИМ (Гц):").grid(row=1, column=0, sticky='w', pady=4)
         self.entry_f = ttk.Entry(frame, width=15)
-        self.entry_f.insert(0, "48.0")
+        self.entry_f.insert(0, "45.29")
         self.entry_f.grid(row=1, column=1, padx=10, pady=4)
         
         btn_calc = ttk.Button(self.tab_plunger, text="РАССЧИТАТЬ ПОЛОЖЕНИЕ", command=self.calc_plunger)
@@ -519,47 +554,62 @@ class TMKWaterAppDesktop:
 ТМК СинТЗ — Энергоцех Чемезов
 
 ------------------------------------------------------------------------------
-1. ПОДРОБНЫЙ ГЕОМЕТРИЧЕСКИЙ РАСЧЕТ ОСТАТКА В РЕЗЕРВУАРАХ
+1. ТЕХНОЛОГИЧЕСКИЙ РЕГЛАМЕНТ БЕЗОПАСНОГО ИЗМЕНЕНИЯ ДОЗИРОВОК
 ------------------------------------------------------------------------------
-Замер выполняется металлической рулеткой от верхнего горизонтального среза
-до зеркала жидкости (h_зам, в метрах). 
-Фактическая глубина жидкости от нижней точки: y = H_макс - h_зам.
+• Максимальный безопасный разовый шаг: не более +0.50 ... +0.80 мг/л.
+• Технологический интервал между шагами: 15–20 минут (время полного отклика).
 
-• 1. Резервуар расходный (Машзал, 2.8 x 2.8 x 2.5 м):
-  - Форма: параллелепипед с плоским дном.
-  - Формула: V = 2.8 * 2.8 * (2.50 - h_зам) * 1000 = 7840 * (2.50 - h_зам) л.
-  - Полная вместимость: 19 600 л (19.60 м³).
-
-• 2. Резервуар №1 (Склад мокрохранения, 5.8 x 5.8 м, высота 2.5...2.8 м):
-  - Уклон дна: ΔH = 2.80 - 2.50 = 0.30 м (30 см).
-  - Глубина от нижней точки: y = 2.80 - h_зам (м).
-  - Полный объем клина (при y = 0.30 м): V_клин = 0.5 * 5.8 * 5.8 * 0.30 * 1000 = 5 046 л.
-  - Зона А (уровень в пределах уклона, y <= 0.30 м):
-    V = 0.5 * (5.8 * y / 0.30) * y * 5.8 * 1000 = 56 067 * y² (л).
-  - Зона Б (уровень выше уклона, y > 0.30 м):
-    V = 5 046 + 5.8 * 5.8 * (y - 0.30) * 1000 = 5 046 + 33 640 * (y - 0.30) (л).
-  - Полная вместимость: 89 146 л (89.15 м³).
-
-• 3. Резервуар №4 (Склад мокрохранения, 2.8 x 5.8 м, высота 2.7...3.4 м):
-  - Уклон дна: ΔH = 3.40 - 2.70 = 0.70 м (70 см).
-  - Глубина от нижней точки: y = 3.40 - h_зам (м).
-  - Полный объем клина (при y = 0.70 м): V_клин = 0.5 * 2.8 * 5.8 * 0.70 * 1000 = 5 684 л.
-  - Зона А (уровень в пределах уклона, y <= 0.70 м):
-    V = 0.5 * (2.8 * 5.8 / 0.70) * y² * 1000 = 11 600 * y² (л).
-  - Зона Б (уровень выше уклона, y > 0.70 м):
-    V = 5 684 + 2.8 * 5.8 * (y - 0.70) * 1000 = 5 684 + 16 240 * (y - 0.70) (л).
-  - Полная вместимость: 49 532 л (49.53 м³).
+• Риски резкого залпового увеличения дозировки:
+  1) Перезарядка коллоидов (рестабилизация): при избытке Al³+ частицы мути
+     приобретают положительный заряд и перестают слипаться, образуя вторичную муть.
+  2) Проскок остаточного алюминия: превышение нормы Al_ост > 0.2 мг/л в готовой воде
+     и зарастание трубопроводов осадком.
+  3) Падение pH: закисление среды и блокировка гидролиза коагулянта.
+  4) Кольматация песчаных фильтров: превышение дозы флокулянта > 0.75 мг/л
+     образует резинистую пленку на кварцевом песке.
 
 ------------------------------------------------------------------------------
-2. ДОЗИРОВАНИЕ РЕАГЕНТОВ И СООТНОШЕНИЕ 22:1
+2. ПРОБНАЯ КОАГУЛЯЦИЯ (JAR TEST И АВТОМАТИЧЕСКИЙ РЕЖИМ ПК УНИТОК)
+------------------------------------------------------------------------------
+А. АВТОМАТИЧЕСКИЙ РЕЖИМ ПК УНИТОК (индекс скорости V в строке 3.ПК):
+• V >= 0.800 (Норма): быстрое формирование плотных хлопьев, стабильное «одеяло».
+• 0.500 <= V < 0.800 (Погранично): вялая кинетика, прибавка +0.40 мг/л.
+• V < 0.500 (Критически мало / вынос): прибавка +0.90 мг/л ступенчато (+0.80 мг/л
+  на первом шаге) и продувка шламоуплотнителей.
+
+Б. ЛАБОРАТОРНЫЙ JAR TEST:
+1. Быстрое перемешивание: 120–180 об/мин (45–60 сек) с «Эпоха».
+2. Медленное перемешивание: 30–45 об/мин (10–15 мин) с «ЭкоПлюс».
+3. Отстаивание: 0 об/мин (покой, 15–20 мин).
+
+------------------------------------------------------------------------------
+3. ДОЗИРОВАНИЕ РЕАГЕНТОВ И СООТНОШЕНИЕ 22:1
 ------------------------------------------------------------------------------
 • Коагулянт «Эпоха» (Al³+): 10–18 мг/л.
 • Флокулянт «ЭкоПлюс» (ПАА): предел 0.75 мг/л (СП 31.13330.2012).
-• Соотношение 22:1: Защитный коэффициент (16.5 мг/л коагулянта / 0.75 мг/л).
-• Точная пропорция подбирается пробным коагулированием (Jar Test).
+• Соотношение 22:1: 16.5 / 22 = 0.75 мг/л (защита фильтров от забивания).
+• Формула расхода насоса: q = (Q * D) / (10 * C * rho) л/ч.
 
 ------------------------------------------------------------------------------
-3. ФОТОМЕТРИЯ ПЭ-5300ВИ И НАСОСЫ «АРЕОПАГ»
+4. ГЕОМЕТРИЧЕСКИЙ РАСЧЕТ ОСТАТКА В РЕЗЕРВУАРАХ (В МЕТРАХ)
+------------------------------------------------------------------------------
+Замер рулеткой (h_зам) от верхнего края. Глубина от дна: y = H_макс - h_зам.
+
+• 1. Резервуар расходный (Машзал, 2.8 x 2.8 x 2.5 м):
+  V = 7840 * (2.50 - h_зам) л. Полная емкость: 19 600 л (19.60 м³).
+
+• 2. Резервуар №1 (Склад, 5.8 x 5.8 м, уклон 0.30 м):
+  - При y <= 0.30 м: V = 56 067 * y² л.
+  - При y > 0.30 м: V = 5 046 + 33 640 * (y - 0.30) л.
+  Полная емкость: 89 146 л (89.15 м³).
+
+• 3. Резервуар №4 (Склад, 2.8 x 5.8 м, уклон 0.70 м):
+  - При y <= 0.70 м: V = 11 600 * y² л.
+  - При y > 0.70 м: V = 5 684 + 16 240 * (y - 0.70) л.
+  Полная емкость: 49 532 л (49.53 м³).
+
+------------------------------------------------------------------------------
+5. ФОТОМЕТРИЯ ПЭ-5300ВИ И НАСОСЫ «АРЕОПАГ»
 ------------------------------------------------------------------------------
 • Мутность (ПНД Ф 14.1:2:4.213-05): C = (D - 0.002417294) / 0.009347066.
 • Плунжер «Ареопаг»: Шкала 0–60 делений (0.5 мм/дел). Целевая f = 35.0 Гц.
