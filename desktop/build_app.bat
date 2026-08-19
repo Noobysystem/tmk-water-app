@@ -2,9 +2,9 @@
 chcp 65001 > nul
 echo Сборка Windows-приложения ТМК Водоподготовка...
 
-pip install pyinstaller
+pip install pyinstaller pandas openpyxl
 pyinstaller --noconfirm --onedir --windowed --name "TMK_Water_App" gui_app.py
 
 echo.
-echo Сборка завершена! Исполняемый файл находится в директории: desktop\dist\TMK_Water_App\
+echo Сборка завершена! Исполняемый файл находится в: desktop\dist\TMK_Water_App\
 pause
