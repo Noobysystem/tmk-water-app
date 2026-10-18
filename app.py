@@ -1,648 +1,603 @@
-import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
-from tkinter.scrolledtext import ScrolledText
+import io
 import datetime
 import pandas as pd
+import streamlit as st
 
-class TMKWaterAppDesktop:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("ТМК СинТЗ — Энергоцех Чемезов | Комплекс водоподготовки")
-        self.root.geometry("960x760")
+# Настройка страницы
+st.set_page_config(
+    page_title="ТМК СинТЗ — Энергоцех Чемезов",
+    page_icon="⚡",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Корпоративные стили ТМК
+st.markdown("""
+    <style>
+    .main-header {
+        background-color: #1E2229;
+        padding: 16px 22px;
+        border-radius: 8px;
+        border-bottom: 4px solid #F37021;
+        color: white;
+        margin-bottom: 20px;
+    }
+    .tmk-badge {
+        background-color: #F37021;
+        color: white;
+        padding: 4px 12px;
+        font-weight: bold;
+        border-radius: 4px;
+        font-size: 20px;
+        display: inline-block;
+        margin-right: 12px;
+    }
+    .stButton>button {
+        background-color: #F37021 !important;
+        color: white !important;
+        font-weight: bold !important;
+        border: none !important;
+        border-radius: 4px !important;
+        padding: 8px 16px !important;
+    }
+    .stButton>button:hover {
+        background-color: #D95F13 !important;
+    }
+    </style>
+    <div class="main-header">
+        <span class="tmk-badge">ТМК</span>
+        <span style="font-size: 22px; font-weight: bold;">ЧЕМЕЗОВ ЭНЕРГОЦЕХ</span>
+        <div style="font-size: 13px; color: #9CA3AF; margin-top: 4px;">
+            Система автоматизации водоочистки • КИМ / УНИТОК / ПЭ-5300ВИ
+        </div>
+    </div>
+""", unsafe_allow_html=True)
+
+# Инициализация состояний сессии
+if "journal" not in st.session_state:
+    st.session_state.journal = []
+
+if "transfer_M" not in st.session_state:
+    st.session_state.transfer_M = None
+
+if "res_tab1" not in st.session_state: st.session_state.res_tab1 = None
+if "res_tab2" not in st.session_state: st.session_state.res_tab2 = None
+if "res_tab3" not in st.session_state: st.session_state.res_tab3 = None
+if "res_tab4" not in st.session_state: st.session_state.res_tab4 = None
+if "res_tab_tanks" not in st.session_state: st.session_state.res_tab_tanks = None
+
+# Вкладки приложения
+tab1, tab2, tab_tanks, tab3, tab4, tab5, tab6 = st.tabs([
+    "🧪 Дозирование КИМ / УНИТОК", 
+    "🛢 Приготовление раствора",
+    "📏 Замер остатка в резервуарах",
+    "🔬 Мутность (ПЭ-5300ВИ)", 
+    "⚙️ Настройка плунжера", 
+    "📋 Сменный журнал",
+    "📚 Памятка и расчеты"
+])
+
+# =============================================================================
+# ВКЛАДКА 1: ДОЗИРОВАНИЕ КИМ / УНИТОК
+# =============================================================================
+with tab1:
+    st.subheader("Текущие показатели системы и кинетики УНИТОК")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        Q = st.number_input("Расход воды (Q), м³/ч", value=459.6, step=5.0, key="t1_Q")
         
-        # Хранилище журнала и последних результатов
-        self.journal = []
-        self.last_res_t1 = None
-        self.last_res_t2 = None
-        self.last_res_t3 = None
-        self.last_res_t4 = None
-        self.last_res_tanks = None
-
-        # Настройка стилей
-        style = ttk.Style()
-        style.theme_use('clam')
-        style.configure('TNotebook.Tab', font=('Segoe UI', 10, 'bold'), padding=[10, 6])
-        style.configure('TButton', font=('Segoe UI', 9, 'bold'))
+        default_M_raw = 41.95
+        default_M_clar = 18.10
+        default_M_fin = 9.15
         
-        # Заголовок ТМК
-        header = tk.Frame(self.root, bg="#1E2229", height=60)
-        header.pack(fill='x')
-        lbl_badge = tk.Label(header, text=" ТМК ", bg="#F37021", fg="white", font=('Segoe UI', 14, 'bold'))
-        lbl_badge.pack(side='left', padx=15, pady=10)
-        lbl_title = tk.Label(header, text="ЧЕМЕЗОВ ЭНЕРГОЦЕХ • Водоподготовка", bg="#1E2229", fg="white", font=('Segoe UI', 12, 'bold'))
-        lbl_title.pack(side='left', pady=10)
+        if st.session_state.transfer_M is not None:
+            st.info(f"💡 Доступно рассчитанное значение мутности: **{st.session_state.transfer_M:.2f} ЕМ/дм³**")
+            trans_col1, trans_col2, trans_col3 = st.columns(3)
+            if trans_col1.button("Подставить в Сырую", key="b_sub_raw"):
+                st.session_state.t1_M_raw = st.session_state.transfer_M
+            if trans_col2.button("Подставить в Осветлитель", key="b_sub_clar"):
+                st.session_state.t1_M_clar = st.session_state.transfer_M
+            if trans_col3.button("Подставить в Готовую", key="b_sub_fin"):
+                st.session_state.t1_M_fin = st.session_state.transfer_M
 
-        # Панель вкладок
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill='both', expand=True, padx=10, pady=10)
+        M_raw = st.number_input("Показатель М (Сырая вода)", value=default_M_raw, step=0.1, key="t1_M_raw")
+        M_clar = st.number_input("Показатель М (Осветлители - макс)", value=default_M_clar, step=0.1, key="t1_M_clar")
+        M_fin = st.number_input("Показатель М (Готовая вода)", value=default_M_fin, step=0.1, key="t1_M_fin")
         
-        # Создание вкладок
-        self.tab_dosing = ttk.Frame(self.notebook)
-        self.tab_prep = ttk.Frame(self.notebook)
-        self.tab_tanks = ttk.Frame(self.notebook)
-        self.tab_turbidity = ttk.Frame(self.notebook)
-        self.tab_plunger = ttk.Frame(self.notebook)
-        self.tab_journal = ttk.Frame(self.notebook)
-        self.tab_memo = ttk.Frame(self.notebook)
+    with col2:
+        V_pk = st.number_input(
+            "Скорость хлопьеобразования ПК (V), инд.", 
+            value=0.472, 
+            step=0.02, 
+            format="%.3f",
+            help="Показатель V из строки 3.ПК на экране анализатора УНИТОК. Норма: >= 0.800",
+            key="t1_V_pk"
+        )
+        D_coag_curr = st.number_input("Текущая доза коагулянта, мг/л", value=14.74, step=0.1, key="t1_D_coag")
+        C_coag = st.number_input("Концентрация коагулянта, %", value=1.2, step=0.1, key="t1_C_coag")
+        ratio_coag_floc = st.number_input(
+            "Пропорция Коагулянт / Флокулянт (1 : N)", 
+            value=22.0, 
+            step=1.0, 
+            min_value=10.0, 
+            max_value=40.0, 
+            help="Отношение дозы коагулянта к флокулянту. По умолчанию 22:1",
+            key="t1_ratio"
+        )
+
+    if st.button("РАССЧИТАТЬ ДОЗИРОВКУ", key="btn_calc_dosing"):
+        rho_coag = 1.010 if C_coag <= 1.0 else 1.013
+        C_floc, rho_floc = 0.04, 0.991
         
-        self.notebook.add(self.tab_dosing, text="🧪 Дозирование КИМ/УНИТОК")
-        self.notebook.add(self.tab_prep, text="🛢 Приготовление раствора")
-        self.notebook.add(self.tab_tanks, text="📏 Остаток в резервуарах")
-        self.notebook.add(self.tab_turbidity, text="🔬 Мутность (ПЭ-5300ВИ)")
-        self.notebook.add(self.tab_plunger, text="⚙️ Настройка плунжера")
-        self.notebook.add(self.tab_journal, text="📋 Сменный журнал")
-        self.notebook.add(self.tab_memo, text="📚 Памятка и расчеты")
-        
-        # Построение интерфейсов
-        self.build_dosing_tab()
-        self.build_prep_tab()
-        self.build_tanks_tab()
-        self.build_turbidity_tab()
-        self.build_plunger_tab()
-        self.build_journal_tab()
-        self.build_memo_tab()
+        alerts = []
+        target_M_clar = 8.0
+        D_coag_ideal = D_coag_curr
 
-    # =========================================================================
-    # 1. ВКЛАДКА: ДОЗИРОВАНИЕ КИМ / УНИТОК
-    # =========================================================================
-    def build_dosing_tab(self):
-        frame = ttk.LabelFrame(self.tab_dosing, text=" Показатели системы и кинетики УНИТОК ", padding=15)
-        frame.pack(fill='x', padx=15, pady=10)
-        
-        ttk.Label(frame, text="Расход воды (Q), м³/ч:").grid(row=0, column=0, sticky='w', pady=4)
-        self.entry_Q = ttk.Entry(frame, width=15)
-        self.entry_Q.insert(0, "459.6")
-        self.entry_Q.grid(row=0, column=1, padx=10, pady=4)
-        
-        ttk.Label(frame, text="Мутность Осветлители (М_осв):").grid(row=1, column=0, sticky='w', pady=4)
-        self.entry_M_clar = ttk.Entry(frame, width=15)
-        self.entry_M_clar.insert(0, "18.10")
-        self.entry_M_clar.grid(row=1, column=1, padx=10, pady=4)
+        # 1. Прибавка по мутности осветлителей
+        if M_clar > target_M_clar:
+            delta_M = M_clar - target_M_clar
+            coag_step_turb = (delta_M / 2.0) * 0.30
+            D_coag_ideal += max(coag_step_turb, 0.5)
+            alerts.append(f"• Мутность осветлителей М={M_clar:.1f} выше нормы (8.0). Расчетная прибавка: +{max(coag_step_turb, 0.5):.2f} мг/л.")
 
-        ttk.Label(frame, text="Скорость ПК УНИТОК (V):").grid(row=2, column=0, sticky='w', pady=4)
-        self.entry_V_pk = ttk.Entry(frame, width=15)
-        self.entry_V_pk.insert(0, "0.472")
-        self.entry_V_pk.grid(row=2, column=1, padx=10, pady=4)
-        
-        ttk.Label(frame, text="Текущая доза коагулянта, мг/л:").grid(row=3, column=0, sticky='w', pady=4)
-        self.entry_D_curr = ttk.Entry(frame, width=15)
-        self.entry_D_curr.insert(0, "14.74")
-        self.entry_D_curr.grid(row=3, column=1, padx=10, pady=4)
+        # 2. Прибавка по скорости седиментации V
+        if V_pk < 0.500:
+            boost_V = 0.90
+            D_coag_ideal += boost_V
+            alerts.append(f"• ⚠️ КРИТИЧЕСКИ НИЗКАЯ скорость ПК (V={V_pk:.3f} < 0.50)! Прибавка по кинетике: +{boost_V:.2f} мг/л.")
+            alerts.append("• 💡 Рекомендация: проверить продувку шламоуплотнителей и приоткрыть лимб плунжера насоса для снижения рабочей частоты ЧРП.")
+        elif V_pk < 0.800:
+            boost_V = 0.40
+            D_coag_ideal += boost_V
+            alerts.append(f"• Скорость ПК (V={V_pk:.3f}) ниже оптимума (0.80). Прибавка по кинетике: +{boost_V:.2f} мг/л.")
 
-        ttk.Label(frame, text="Концентрация коагулянта (%):").grid(row=4, column=0, sticky='w', pady=4)
-        self.entry_C_coag = ttk.Entry(frame, width=15)
-        self.entry_C_coag.insert(0, "1.2")
-        self.entry_C_coag.grid(row=4, column=1, padx=10, pady=4)
+        D_coag_ideal = min(round(D_coag_ideal, 2), 18.0)
+        delta_total = D_coag_ideal - D_coag_curr
 
-        ttk.Label(frame, text="Пропорция Коаг. / Флок. (1 : N):").grid(row=5, column=0, sticky='w', pady=4)
-        self.entry_ratio = ttk.Entry(frame, width=15)
-        self.entry_ratio.insert(0, "22.0")
-        self.entry_ratio.grid(row=5, column=1, padx=10, pady=4)
-        
-        btn_calc = ttk.Button(self.tab_dosing, text="РАССЧИТАТЬ ДОЗИРОВКУ", command=self.calc_dosing)
-        btn_calc.pack(pady=8)
-        
-        self.lbl_dosing_res = ttk.Label(self.tab_dosing, text="", font=('Segoe UI', 10, 'bold'), justify='center')
-        self.lbl_dosing_res.pack(pady=5)
+        # 3. Проверка правила безопасного разового шага (+0.80 мг/л)
+        MAX_SAFE_STEP = 0.80
+        is_stepped = False
+        if delta_total > MAX_SAFE_STEP:
+            is_stepped = True
+            D_coag_apply = round(D_coag_curr + MAX_SAFE_STEP, 2)
+            alerts.append(
+                f"🛑 **ВНИМАНИЕ (Регламент безопасного дозирования):** Требуемое увеличение (+{delta_total:.2f} мг/л) превышает допустимый разовый предел (+{MAX_SAFE_STEP:.2f} мг/л)!\n"
+                f"Залповый подъем опасен перезарядкой коллоидов (рестабилизацией мутности), падением pH и проскоком остаточного алюминия (Al³⁺ > 0.2 мг/л).\n"
+                f"👉 **Установите на Шаге 1 дозу: {D_coag_step1:.2f} мг/л.** Выдержите 15–20 минут перед переходом к целевой дозе ({D_coag_ideal:.2f} мг/л)."
+            )
+        else:
+            D_coag_apply = D_coag_ideal
 
-        self.btn_log_t1 = ttk.Button(self.tab_dosing, text="📋 Добавить запись в журнал", command=self.add_journal_t1, state='disabled')
-        self.btn_log_t1.pack(pady=5)
+        # Расчет дозы флокулянта (по шагу 1)
+        D_floc_target = round(D_coag_apply / ratio_coag_floc, 2)
+        if D_floc_target > 0.75:
+            D_floc_target = 0.75
+            alerts.append("• Доза флокулянта ограничена пределом 0.75 мг/л (защита от кольматации фильтров).")
 
-    def calc_dosing(self):
-        try:
-            Q = float(self.entry_Q.get().replace(',', '.'))
-            M_clar = float(self.entry_M_clar.get().replace(',', '.'))
-            V_pk = float(self.entry_V_pk.get().replace(',', '.'))
-            D_curr = float(self.entry_D_curr.get().replace(',', '.'))
-            C_coag = float(self.entry_C_coag.get().replace(',', '.'))
-            ratio = float(self.entry_ratio.get().replace(',', '.'))
+        # Расчет расходов насосов (л/ч)
+        q_coag_step1 = (Q * D_coag_apply) / (10 * C_coag * rho_coag)
+        q_coag_final = (Q * D_coag_ideal) / (10 * C_coag * rho_coag)
+        q_floc = (Q * D_floc_target) / (10 * C_floc * rho_floc)
 
-            rho_coag = 1.010 if C_coag <= 1.0 else 1.013
-            
-            alerts = []
-            D_coag_ideal = D_curr
+        if M_fin > 8.0:
+            alerts.append(f"• 🚨 ВНИМАНИЕ: Мутность готовой воды М={M_fin:.2f}! Высокая нагрузка на песчаные фильтры, подготовьтесь к промывке.")
 
-            if M_clar > 8.0:
-                delta_M = M_clar - 8.0
-                coag_step = max((delta_M / 2.0) * 0.30, 0.5)
-                D_coag_ideal += coag_step
-                alerts.append(f"Повышенная мутность (М={M_clar:.1f}). Прибавка: +{coag_step:.2f} мг/л.")
-
-            if V_pk < 0.500:
-                D_coag_ideal += 0.90
-                alerts.append(f"⚠️ КРИТИЧЕСКИ НИЗКАЯ скорость ПК (V={V_pk:.3f} < 0.50)! Прибавка: +0.90 мг/л.")
-            elif V_pk < 0.800:
-                D_coag_ideal += 0.40
-                alerts.append(f"Скорость ПК (V={V_pk:.3f}) ниже оптимума (0.80). Прибавка: +0.40 мг/л.")
-
-            D_coag_ideal = min(round(D_coag_ideal, 2), 18.0)
-            delta_total = D_coag_ideal - D_curr
-
-            MAX_SAFE_STEP = 0.80
-            is_stepped = False
-            if delta_total > MAX_SAFE_STEP:
-                is_stepped = True
-                D_coag_apply = round(D_curr + MAX_SAFE_STEP, 2)
-                alerts.append(
-                    f"🛑 СТУПЕНЧАТЫЙ РАСЧЕТ: Залповый подъем опасен перезарядкой коллоидов и падением pH!\n"
-                    f"Установите сейчас (Шаг 1): {D_coag_apply:.2f} мг/л. Выдержите 15–20 мин перед выходом на цель ({D_coag_ideal:.2f} мг/л)."
-                )
-            else:
-                D_coag_apply = D_coag_ideal
-
-            D_floc = round(D_coag_apply / ratio, 2)
-            if D_floc > 0.75:
-                D_floc = 0.75
-                alerts.append("Доза флокулянта ограничена 0.75 мг/л.")
-
-            q_coag_step1 = (Q * D_coag_apply) / (10 * C_coag * rho_coag)
-            q_coag_final = (Q * D_coag_ideal) / (10 * C_coag * rho_coag)
-            q_floc = (Q * D_floc) / (10 * 0.04 * 0.991)
-
-            if is_stepped:
-                res_text = f"👉 ШАГ 1 (Установить сейчас): {D_coag_apply:.2f} мг/л ({q_coag_step1:.1f} л/ч)\n" \
-                           f"🎯 Конечная цель: {D_coag_ideal:.2f} мг/л ({q_coag_final:.1f} л/ч)\n" \
-                           f"Доза ЭкоПлюс (1:{ratio:.0f}): {D_floc:.2f} мг/л ({q_floc:.1f} л/ч)"
-            else:
-                res_text = f"Реком. доза Эпоха: {D_coag_apply:.2f} мг/л ({q_coag_step1:.1f} л/ч)\n" \
-                           f"Реком. доза ЭкоПлюс (1:{ratio:.0f}): {D_floc:.2f} мг/л ({q_floc:.1f} л/ч)"
-
-            if alerts:
-                res_text += "\n⚠️ " + "\n⚠️ ".join(alerts)
-
-            self.lbl_dosing_res.config(text=res_text, foreground="#D83B01" if alerts else "#107C41")
-            
-            self.last_res_t1 = {
+        st.session_state.res_tab1 = {
+            "D_coag_apply": D_coag_apply,
+            "D_coag_ideal": D_coag_ideal,
+            "is_stepped": is_stepped,
+            "D_floc_target": D_floc_target,
+            "q_coag_step1": q_coag_step1,
+            "q_coag_final": q_coag_final,
+            "q_floc": q_floc,
+            "ratio_coag_floc": ratio_coag_floc,
+            "V_pk": V_pk,
+            "alerts": alerts,
+            "log_entry": {
                 "Время": datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
                 "Модуль": "Дозирование КИМ/УНИТОК",
-                "Входные данные": f"Q={Q:.1f}, M_осв={M_clar:.1f}, V_пк={V_pk:.3f}, Д_тек={D_curr:.2f}",
-                "Результат": f"Шаг 1: {D_coag_apply:.2f} мг/л ({q_coag_step1:.1f} л/ч); Цель: {D_coag_ideal:.2f} мг/л; ЭкоПлюс: {D_floc:.2f} мг/л",
+                "Входные данные": f"Q={Q:.1f}, M_осв={M_clar:.1f}, V_пк={V_pk:.3f}, Д_тек={D_coag_curr:.2f}",
+                "Результат": f"Шаг 1: {D_coag_apply:.2f} мг/л ({q_coag_step1:.1f} л/ч); Цель: {D_coag_ideal:.2f} мг/л; ЭкоПлюс: {D_floc_target:.2f} мг/л ({q_floc:.1f} л/ч)",
                 "Статус": "Предупреждение (Ступенчато)" if is_stepped else ("Предупреждение" if alerts else "В норме")
             }
-            self.btn_log_t1.config(state='normal')
-        except ValueError:
-            messagebox.showerror("Ошибка", "Проверьте корректность введенных чисел")
+        }
 
-    def add_journal_t1(self):
-        if self.last_res_t1:
-            self.add_to_journal(self.last_res_t1)
-            messagebox.showinfo("Журнал", "Запись дозирования добавлена в сменный журнал!")
-
-    # =========================================================================
-    # 2. ВКЛАДКА: ПРИГОТОВЛЕНИЕ РАСТВОРА
-    # =========================================================================
-    def build_prep_tab(self):
-        frame = ttk.LabelFrame(self.tab_prep, text=" Затворение по рулетке (Бак 2.8 х 2.8 х 2.5 м) ", padding=15)
-        frame.pack(fill='x', padx=15, pady=10)
+    if st.session_state.res_tab1 is not None:
+        res = st.session_state.res_tab1
+        st.markdown("---")
+        st.subheader("Рекомендуемые параметры дозирования")
         
-        ttk.Label(frame, text="Расстояние от края бака до воды (см):").grid(row=0, column=0, sticky='w', pady=4)
-        self.entry_h = ttk.Entry(frame, width=15)
-        self.entry_h.insert(0, "100")
-        self.entry_h.grid(row=0, column=1, padx=10, pady=4)
+        r_col1, r_col2 = st.columns(2)
+        if res['is_stepped']:
+            r_col1.metric("ШАГ 1: Установить сейчас (Коагулянт)", f"{res['D_coag_apply']:.2f} мг/л", delta=f"{res['D_coag_apply'] - D_coag_curr:+.2f} мг/л (Безопасный шаг)")
+            r_col2.metric("Конечная расчетная цель (Коагулянт)", f"{res['D_coag_ideal']:.2f} мг/л", help="Устанавливается через 15-20 минут при необходимости")
+            r_col1.metric("Расход насоса коагулянта (Шаг 1)", f"{res['q_coag_step1']:.1f} л/ч")
+            r_col2.metric("Расход насоса флокулянта", f"{res['q_floc']:.1f} л/ч")
+        else:
+            r_col1.metric("Реком. доза коагулянта ('Эпоха')", f"{res['D_coag_apply']:.2f} мг/л", delta=f"{res['D_coag_apply'] - D_coag_curr:+.2f} мг/л")
+            r_col2.metric("Реком. доза флокулянта ('ЭкоПлюс')", f"{res['D_floc_target']:.2f} мг/л", help=f"Расчет по пропорции 1:{res['ratio_coag_floc']:.0f}")
+            r_col1.metric("Расход насоса коагулянта", f"{res['q_coag_step1']:.1f} л/ч")
+            r_col2.metric("Расход насоса флокулянта", f"{res['q_floc']:.1f} л/ч")
+
+        if res['alerts']:
+            for alert in res['alerts']:
+                if "🛑" in alert or "КРИТИЧЕСКИ" in alert or "🚨" in alert:
+                    st.error(alert)
+                else:
+                    st.warning(alert)
+        else:
+            st.success("Параметры коагуляции и скорость седиментации в норме.")
+
+        if st.button("📋 Добавить запись в журнал", key="btn_add_journal_t1"):
+            st.session_state.journal.append(res['log_entry'])
+            st.toast("Запись дозирования успешно добавлена в сменный журнал!")
+
+# =============================================================================
+# ВКЛАДКА 2: КАЛЬКУЛЯТОР РАСХОДА КОАГУЛЯНТА ДЛЯ ПРИГОТОВЛЕНИЯ РАСТВОРА
+# =============================================================================
+with tab2:
+    st.subheader("Калькулятор расхода коагулянта для приготовления раствора")
+    st.caption("Расчет объемов концентрата из еврокуба и обычной воды для расходного резервуара 2.8 х 2.8 х 2.5 м.")
+
+    prep_col1, prep_col2 = st.columns(2)
+    
+    with prep_col1:
+        h_measured_cm = st.number_input(
+            "Расстояние от края бака до зеркала воды (по рулетке), см", 
+            value=100.0, 
+            step=5.0, 
+            min_value=0.0, 
+            max_value=250.0,
+            key="prep_h_measured"
+        )
         
-        ttk.Label(frame, text="Целевая концентрация раствора (%):").grid(row=1, column=0, sticky='w', pady=4)
-        self.var_conc = tk.DoubleVar(value=1.2)
-        rb1 = ttk.Radiobutton(frame, text="1.0%", variable=self.var_conc, value=1.0)
-        rb2 = ttk.Radiobutton(frame, text="1.2%", variable=self.var_conc, value=1.2)
-        rb1.grid(row=1, column=1, sticky='w')
-        rb2.grid(row=1, column=1, padx=60, sticky='w')
+        C_target_prep = st.radio(
+            "Целевая концентрация раствора в резервуаре, %",
+            options=[1.0, 1.2],
+            index=1,
+            horizontal=True,
+            key="prep_c_target_radio"
+        )
+    
+    with prep_col2:
+        C_tov = st.number_input(
+            "Содержание Al³+ в еврокубе (из паспорта № 644), %", 
+            value=9.2, 
+            step=0.1, 
+            key="prep_c_tov"
+        )
+        rho_tov = st.number_input(
+            "Плотность концентрата в еврокубе, г/см³", 
+            value=1.24, 
+            step=0.01, 
+            key="prep_rho_tov"
+        )
 
-        ttk.Label(frame, text="Содержание Al³+ в еврокубе (%):").grid(row=2, column=0, sticky='w', pady=4)
-        self.entry_C_tov = ttk.Entry(frame, width=15)
-        self.entry_C_tov.insert(0, "9.2")
-        self.entry_C_tov.grid(row=2, column=1, padx=10, pady=4)
+    if st.button("РАССЧИТАТЬ ОБЪЕМЫ", key="btn_calc_prep_tab"):
+        AREA_TANK = 2.8 * 2.8  # 7.84 м²
+        V_PER_CM = AREA_TANK * 10.0  # 78.4 л на 1 см
+        V_TOTAL_TANK = AREA_TANK * 2.5 * 1000.0  # 19 600 литров
 
-        ttk.Label(frame, text="Плотность концентрата (г/см³):").grid(row=3, column=0, sticky='w', pady=4)
-        self.entry_rho_tov = ttk.Entry(frame, width=15)
-        self.entry_rho_tov.insert(0, "1.24")
-        self.entry_rho_tov.grid(row=3, column=1, padx=10, pady=4)
+        V_add_l = h_measured_cm * V_PER_CM
+        V_remain_l = V_TOTAL_TANK - V_add_l
         
-        btn_calc = ttk.Button(self.tab_prep, text="РАССЧИТАТЬ ОБЪЕМЫ", command=self.calc_prep)
-        btn_calc.pack(pady=8)
-        
-        self.lbl_prep_res = ttk.Label(self.tab_prep, text="", font=('Segoe UI', 10, 'bold'), justify='center')
-        self.lbl_prep_res.pack(pady=5)
+        rho_work = 1.010 if C_target_prep == 1.0 else 1.012
+        M_dry_req = V_add_l * (C_target_prep / 100.0) * rho_work
+        M_tov_req = M_dry_req / (C_tov / 100.0)
+        V_tov_req_l = M_tov_req / rho_tov
+        V_water_add_l = V_add_l - V_tov_req_l
 
-        self.btn_log_t2 = ttk.Button(self.tab_prep, text="📋 Добавить запись в журнал", command=self.add_journal_t2, state='disabled')
-        self.btn_log_t2.pack(pady=5)
-
-    def calc_prep(self):
-        try:
-            h_cm = float(self.entry_h.get().replace(',', '.'))
-            c_target = self.var_conc.get()
-            c_tov = float(self.entry_C_tov.get().replace(',', '.'))
-            rho_tov = float(self.entry_rho_tov.get().replace(',', '.'))
-            
-            V_add = h_cm * 78.4
-            V_remain = 19600.0 - V_add
-            
-            rho_work = 1.010 if c_target == 1.0 else 1.012
-            M_dry = V_add * (c_target / 100.0) * rho_work
-            M_tov = M_dry / (c_tov / 100.0)
-            V_tov = M_tov / rho_tov
-            V_water = V_add - V_tov
-            
-            res_text = f"Остаток в баке: {V_remain:.0f} л | Объем доведения: {V_add:.0f} л\n" \
-                       f"Залить КОНЦЕНТРАТА из Еврокуба: {V_tov:.1f} л ({M_tov:.1f} кг)\n" \
-                       f"Долить обычной воды: {V_water:.0f} л\n" \
-                       f"Включить барботаж на 15-20 минут!"
-            self.lbl_prep_res.config(text=res_text, foreground="#002050")
-            
-            self.last_res_t2 = {
+        st.session_state.res_tab2 = {
+            "C_target_prep": C_target_prep,
+            "V_remain_l": V_remain_l,
+            "h_measured_cm": h_measured_cm,
+            "V_add_l": V_add_l,
+            "V_tov_req_l": V_tov_req_l,
+            "M_tov_req": M_tov_req,
+            "V_water_add_l": V_water_add_l,
+            "log_entry": {
                 "Время": datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
                 "Модуль": "Приготовление раствора",
-                "Входные данные": f"Замер={h_cm:.0f} см, C_цель={c_target}%, Al³+={c_tov}%",
-                "Результат": f"Концентрат: {V_tov:.1f} л ({M_tov:.1f} кг); Вода: {V_water:.0f} л; Долив: {V_add:.0f} л",
+                "Входные данные": f"Замер={h_measured_cm:.0f} см, C_цель={C_target_prep}%, Al³+={C_tov}%",
+                "Результат": f"Концентрат: {V_tov_req_l:.1f} л ({M_tov_req:.1f} кг); Вода: {V_water_add_l:.0f} л; Долив: {V_add_l:.0f} л",
                 "Статус": "Приготовлено"
             }
-            self.btn_log_t2.config(state='normal')
-        except ValueError:
-            messagebox.showerror("Ошибка", "Проверьте параметры затворения")
+        }
 
-    def add_journal_t2(self):
-        if self.last_res_t2:
-            self.add_to_journal(self.last_res_t2)
-            messagebox.showinfo("Журнал", "Запись приготовления раствора добавлена в сменный журнал!")
+    if st.session_state.res_tab2 is not None:
+        res2 = st.session_state.res_tab2
+        st.markdown("---")
+        st.markdown(f"### 📊 Результат расчета (Целевая концентрация: **{res2['C_target_prep']}%**):")
+        
+        m_col1, m_col2, m_col3 = st.columns(3)
+        m_col1.metric("Остаток раствора в баке", f"{res2['V_remain_l']:.0f} л", help=f"Уровень остатка: {250 - res2['h_measured_cm']:.0f} см от дна")
+        m_col2.metric("Общий объем доведения", f"{res2['V_add_l']:.0f} л")
+        m_col3.metric("КОНЦЕНТРАТ из Еврокуба", f"{res2['V_tov_req_l']:.1f} л", delta=f"{res2['M_tov_req']:.1f} кг")
 
-    # =========================================================================
-    # 3. ВКЛАДКА: ЗАМЕР ОСТАТКА В РЕЗЕРВУАРАХ
-    # =========================================================================
-    def build_tanks_tab(self):
-        frame = ttk.LabelFrame(self.tab_tanks, text=" Параметры замера в резервуаре ", padding=15)
-        frame.pack(fill='x', padx=15, pady=10)
+        st.info(f"💦 **Долить обычной воды:** **{res2['V_water_add_l']:.0f} литров**")
 
-        ttk.Label(frame, text="Выберите резервуар:").grid(row=0, column=0, sticky='w', pady=4)
-        self.tank_var = tk.StringVar(value="Резервуар расходный (Машзал 2.8х2.8х2.5 м)")
-        tanks = [
-            "Резервуар расходный (Машзал 2.8х2.8х2.5 м)",
-            "Резервуар №1 (Склад мокрохранения 5.8х5.8 м, h=2.5..2.8 м)",
-            "Резервуар №4 (Склад мокрохранения 2.8х5.8 м, h=2.7..3.4 м)"
-        ]
-        self.cmb_tanks = ttk.Combobox(frame, textvariable=self.tank_var, values=tanks, state='readonly', width=52)
-        self.cmb_tanks.grid(row=0, column=1, padx=10, pady=4)
+        st.markdown("#### 📝 Инструкция для машиниста:")
+        st.markdown(f"""
+        1. Замерить по шкале еврокуба и залить в расходный бак **{res2['V_tov_req_l']:.0f} л** (или **{res2['M_tov_req']:.0f} кг**) концентрата «Эпоха».
+        2. Долить обычную воду до верхнего края резервуара (добавить **{res2['V_water_add_l']:.0f} л** воды).
+        3. Включить **барботаж** и перемешивать весь резервуар не менее 15–20 минут для выравнивания плотности по всему объему.
+        """)
 
-        ttk.Label(frame, text="Замер рулеткой до воды, МЕТРЫ (м):").grid(row=1, column=0, sticky='w', pady=4)
-        self.entry_tape = ttk.Entry(frame, width=15)
-        self.entry_tape.insert(0, "1.00")
-        self.entry_tape.grid(row=1, column=1, sticky='w', padx=10, pady=4)
+        if st.button("📋 Добавить запись в журнал", key="btn_add_journal_t2"):
+            st.session_state.journal.append(res2['log_entry'])
+            st.toast("Запись приготовления раствора добавлена в сменный журнал!")
 
-        btn_calc = ttk.Button(self.tab_tanks, text="РАССЧИТАТЬ ОСТАТОК", command=self.calc_tanks)
-        btn_calc.pack(pady=8)
+# =============================================================================
+# ВКЛАДКА 3: ЗАМЕР ОСТАТКА В РЕЗЕРВУАРАХ (ЧИСТЫЙ ОБЪЕМ)
+# =============================================================================
+with tab_tanks:
+    st.subheader("📏 Расчет фактического остаточного объема в резервуарах")
+    st.caption("Определение объема жидкости по замеру рулеткой от верхнего края резервуара до зеркала воды.")
 
-        self.lbl_tanks_res = ttk.Label(self.tab_tanks, text="", font=('Segoe UI', 10, 'bold'), justify='center')
-        self.lbl_tanks_res.pack(pady=5)
+    tank_choice = st.selectbox(
+        "Выберите резервуар для замера:",
+        options=[
+            "1. Резервуар расходный (Машинный зал) — 2.8х2.8х2.5 м",
+            "2. Резервуар №1 (Склад мокрохранения) — 5.8х5.8 м (h = 2.5...2.8 м)",
+            "3. Резервуар №4 (Склад мокрохранения) — 2.8х5.8 м (h = 2.7...3.4 м)"
+        ],
+        key="tank_select_web"
+    )
 
-        self.btn_log_tanks = ttk.Button(self.tab_tanks, text="📋 Добавить запись в журнал", command=self.add_journal_tanks, state='disabled')
-        self.btn_log_tanks.pack(pady=5)
+    if "1. Резервуар расходный" in tank_choice:
+        max_depth_m = 2.50
+    elif "2. Резервуар №1" in tank_choice:
+        max_depth_m = 2.80
+    else:
+        max_depth_m = 3.40
 
-    def calc_tanks(self):
-        try:
-            choice = self.tank_var.get()
-            h_tape_m = float(self.entry_tape.get().replace(',', '.'))
+    h_tape_m = st.number_input(
+        f"Замер рулеткой от верхнего края до зеркала воды, МЕТРЫ (0.00 – {max_depth_m:.2f} м)",
+        min_value=0.00,
+        max_value=max_depth_m,
+        value=min(1.00, max_depth_m),
+        step=0.05,
+        format="%.2f",
+        key="tank_tape_input"
+    )
 
-            if "Машзал" in choice:
-                max_h_m = 2.50
-                V_max = 19600.0
-                if h_tape_m > max_h_m:
-                    messagebox.showwarning("Внимание", f"Замер не может превышать глубину бака ({max_h_m} м)")
-                    return
-                h_liq_m = max_h_m - h_tape_m
-                V = 2.8 * 2.8 * h_liq_m * 1000.0
-                t_name = "Резервуар расходный (Машзал)"
-            elif "№1" in choice:
-                max_h_m = 2.80
-                if h_tape_m > max_h_m:
-                    messagebox.showwarning("Внимание", f"Замер не может превышать максимальную высоту бака ({max_h_m} м)")
-                    return
-                V_wedge = 0.5 * 5.8 * 5.8 * 0.3 * 1000.0
-                V_max = V_wedge + (5.8 * 5.8 * 2.5 * 1000.0)
-                y_m = max_h_m - h_tape_m
-                if y_m <= 0.3:
-                    V = 0.5 * (5.8 * y_m / 0.3) * y_m * 5.8 * 1000.0
-                else:
-                    V = V_wedge + (5.8 * 5.8 * (y_m - 0.3) * 1000.0)
-                t_name = "Резервуар №1 (Склад)"
+    if st.button("РАССЧИТАТЬ ОСТАТОК В РЕЗЕРВУАРЕ", key="btn_calc_tank_vol"):
+        V_liters = 0.0
+        V_max_liters = 0.0
+        h_liquid_m = max_depth_m - h_tape_m
+        tank_name = ""
+
+        # Резервуар 1: Машинный зал (2.8 x 2.8 x 2.5)
+        if "1. Резервуар расходный" in tank_choice:
+            tank_name = "Резервуар расходный (Машзал)"
+            V_max_liters = 2.8 * 2.8 * 2.5 * 1000.0  # 19600 л
+            V_liters = 2.8 * 2.8 * h_liquid_m * 1000.0
+
+        # Резервуар 2: Склад №1 (5.8 x 5.8 x 2.5...2.8)
+        elif "2. Резервуар №1" in tank_choice:
+            tank_name = "Резервуар №1 (Склад мокрохранения)"
+            V_wedge_full = 0.5 * 5.8 * 5.8 * 0.3 * 1000.0  # 5046 л
+            V_max_liters = V_wedge_full + (5.8 * 5.8 * 2.5 * 1000.0)  # 89146 л
+            
+            y_m = h_liquid_m  # глубина от нижней точки
+            if y_m <= 0.3:
+                V_liters = 0.5 * (5.8 * y_m / 0.3) * y_m * 5.8 * 1000.0
             else:
-                max_h_m = 3.40
-                if h_tape_m > max_h_m:
-                    messagebox.showwarning("Внимание", f"Замер не может превышать максимальную высоту бака ({max_h_m} м)")
-                    return
-                V_wedge = 0.5 * 2.8 * 5.8 * 0.7 * 1000.0
-                V_max = V_wedge + (2.8 * 5.8 * 2.7 * 1000.0)
-                y_m = max_h_m - h_tape_m
-                if y_m <= 0.7:
-                    V = 0.5 * (2.8 * 5.8 / 0.7) * (y_m ** 2) * 1000.0
-                else:
-                    V = V_wedge + (2.8 * 5.8 * (y_m - 0.7) * 1000.0)
-                t_name = "Резервуар №4 (Склад)"
+                V_liters = V_wedge_full + (5.8 * 5.8 * (y_m - 0.3) * 1000.0)
 
-            V_m3 = V / 1000.0
-            pct = (V / V_max) * 100.0
-            h_liquid_m = (2.50 if "Машзал" in choice else (2.80 if "№1" in choice else 3.40)) - h_tape_m
+        # Резервуар 3: Склад №4 (2.8 x 5.8 x 2.7...3.4)
+        else:
+            tank_name = "Резервуар №4 (Склад мокрохранения)"
+            V_wedge_full = 0.5 * 2.8 * 5.8 * 0.7 * 1000.0  # 5684 л
+            V_max_liters = V_wedge_full + (2.8 * 5.8 * 2.7 * 1000.0)  # 49532 л
+            
+            y_m = h_liquid_m  # глубина от нижней точки
+            if y_m <= 0.7:
+                V_liters = 0.5 * (2.8 * 5.8 / 0.7) * (y_m ** 2) * 1000.0
+            else:
+                V_liters = V_wedge_full + (2.8 * 5.8 * (y_m - 0.7) * 1000.0)
 
-            res_text = f"Резервуар: {t_name}\n" \
-                       f"Фактический объем: {V:.0f} л ({V_m3:.2f} м³) | Полная емкость: {V_max:.0f} л\n" \
-                       f"Уровень заполнения: {pct:.1f}% (глубина жидкости: {h_liquid_m:.2f} м)"
-            self.lbl_tanks_res.config(text=res_text, foreground="#002050")
+        V_m3 = V_liters / 1000.0
+        fill_pct = (V_liters / V_max_liters) * 100.0 if V_max_liters > 0 else 0.0
 
-            self.last_res_tanks = {
+        st.session_state.res_tab_tanks = {
+            "tank_name": tank_name,
+            "h_tape_m": h_tape_m,
+            "h_liquid_m": h_liquid_m,
+            "V_liters": V_liters,
+            "V_m3": V_m3,
+            "fill_pct": fill_pct,
+            "V_max_liters": V_max_liters,
+            "log_entry": {
                 "Время": datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
                 "Модуль": "Замер остатка в баках",
-                "Входные данные": f"{t_name}, Замер={h_tape_m:.2f} м",
-                "Результат": f"Объем: {V:.0f} л ({V_m3:.2f} м³); Заполнение: {pct:.1f}%; Глубина: {h_liquid_m:.2f} м",
+                "Входные данные": f"{tank_name}, Замер={h_tape_m:.2f} м",
+                "Результат": f"Объем: {V_liters:.0f} л ({V_m3:.2f} м³); Заполнение: {fill_pct:.1f}%; Глубина: {h_liquid_m:.2f} м",
                 "Статус": "В норме"
             }
-            self.btn_log_tanks.config(state='normal')
-        except ValueError:
-            messagebox.showerror("Ошибка", "Проверьте введенные числа")
+        }
 
-    def add_journal_tanks(self):
-        if self.last_res_tanks:
-            self.add_to_journal(self.last_res_tanks)
-            messagebox.showinfo("Журнал", "Замер остатка в резервуаре успешно сохранен!")
-
-    # =========================================================================
-    # 4. ВКЛАДКА: МУТНОСТЬ
-    # =========================================================================
-    def build_turbidity_tab(self):
-        frame = ttk.LabelFrame(self.tab_turbidity, text=" Измерение на ПЭ-5300ВИ ", padding=15)
-        frame.pack(fill='x', padx=15, pady=10)
+    if st.session_state.res_tab_tanks is not None:
+        res_t = st.session_state.res_tab_tanks
+        st.markdown("---")
+        st.markdown(f"### 📊 Результат замера: **{res_t['tank_name']}**")
         
-        ttk.Label(frame, text="Оптическая плотность (D):").grid(row=0, column=0, sticky='w', pady=4)
-        self.entry_D = ttk.Entry(frame, width=15)
-        self.entry_D.insert(0, "0.165")
-        self.entry_D.grid(row=0, column=1, padx=10, pady=4)
+        c_m1, c_m2, c_m3 = st.columns(3)
+        c_m1.metric("Фактический объем", f"{res_t['V_liters']:.0f} л", help=f"Полная емкость бака: {res_t['V_max_liters']:.0f} л")
+        c_m2.metric("Объем в кубических метрах", f"{res_t['V_m3']:.2f} м³")
+        c_m3.metric("Уровень заполнения", f"{res_t['fill_pct']:.1f}%", help=f"Фактическая глубина жидкости: {res_t['h_liquid_m']:.2f} м")
+
+        st.progress(min(max(res_t['fill_pct'] / 100.0, 0.0), 1.0))
+
+        if st.button("📋 Добавить запись в журнал", key="btn_add_journal_tanks"):
+            st.session_state.journal.append(res_t['log_entry'])
+            st.toast(f"Замер остатка в {res_t['tank_name']} успешно сохранен в сменный журнал!")
+
+# =============================================================================
+# ВКЛАДКА 4: МУТНОСТЬ (ПЭ-5300ВИ)
+# =============================================================================
+with tab3:
+    st.subheader("Данные спектрофотометра (ПЭ-5300ВИ)")
+    D_val = st.number_input("Оптическая плотность (D), 520 нм / 50 мм", value=0.165, format="%.4f", key="t3_D")
+    
+    with st.expander("Градуировочные константы (ПНД Ф 14.1:2:4.213-05)"):
+        K_val = st.number_input("Коэффициент K", value=0.009347066, format="%.9f", key="t3_K")
+        D0_val = st.number_input("Смещение D₀", value=0.002417294, format="%.9f", key="t3_D0")
+
+    if st.button("РАССЧИТАТЬ МУТНОСТЬ (C)", key="btn_calc_turbidity"):
+        C_val = 0.0 if D_val <= D0_val else (D_val - D0_val) / K_val
+        st.session_state.transfer_M = C_val
         
-        btn_calc = ttk.Button(self.tab_turbidity, text="РАССЧИТАТЬ МУТНОСТЬ", command=self.calc_turbidity)
-        btn_calc.pack(pady=8)
-        
-        self.lbl_turb_res = ttk.Label(self.tab_turbidity, text="", font=('Segoe UI', 11, 'bold'))
-        self.lbl_turb_res.pack(pady=5)
+        if C_val <= 2.0:
+            status = "Отличное качество (готовая вода)"
+            status_type = "success"
+        elif C_val <= 8.0:
+            status = "Норма для осветлителей"
+            status_type = "info"
+        elif C_val <= 15.0:
+            status = "Повышенная мутность"
+            status_type = "warning"
+        else:
+            status = "КРИТИЧЕСКАЯ МУТНОСТЬ / Вынос взвеси"
+            status_type = "error"
 
-        self.btn_log_t3 = ttk.Button(self.tab_turbidity, text="📋 Добавить запись в журнал", command=self.add_journal_t3, state='disabled')
-        self.btn_log_t3.pack(pady=5)
-
-    def calc_turbidity(self):
-        try:
-            D = float(self.entry_D.get().replace(',', '.'))
-            K, D0 = 0.009347066, 0.002417294
-            C = 0.0 if D <= D0 else (D - D0) / K
-            
-            if C <= 2.0:
-                status = "Отличное качество (готовая вода)"
-            elif C <= 8.0:
-                status = "Норма для осветлителей"
-            elif C <= 15.0:
-                status = "Повышенная мутность"
-            else:
-                status = "КРИТИЧЕСКАЯ МУТНОСТЬ / Вынос"
-
-            self.lbl_turb_res.config(text=f"Рассчитанная мутность (C): {C:.2f} ЕМ/дм³\nСтатус: {status}", foreground="#107C41")
-            
-            self.last_res_t3 = {
+        st.session_state.res_tab3 = {
+            "C_val": C_val,
+            "status": status,
+            "status_type": status_type,
+            "log_entry": {
                 "Время": datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
                 "Модуль": "Мутность ПЭ-5300ВИ",
-                "Входные данные": f"D={D:.4f}",
-                "Результат": f"C={C:.2f} ЕМ/дм³",
+                "Входные данные": f"D={D_val:.4f}",
+                "Результат": f"C={C_val:.2f} ЕМ/дм³",
                 "Статус": status
             }
-            self.btn_log_t3.config(state='normal')
-        except ValueError:
-            messagebox.showerror("Ошибка", "Ошибка ввода плотности D")
+        }
 
-    def add_journal_t3(self):
-        if self.last_res_t3:
-            self.add_to_journal(self.last_res_t3)
-            messagebox.showinfo("Журнал", "Результат измерения мутности добавлен в сменный журнал!")
-
-    # =========================================================================
-    # 5. ВКЛАДКА: НАСТРОЙКА ПЛУНЖЕРА
-    # =========================================================================
-    def build_plunger_tab(self):
-        frame = ttk.LabelFrame(self.tab_plunger, text=" Лимб насоса Ареопаг (0–60 делений, 0.5 мм/дел) ", padding=15)
-        frame.pack(fill='x', padx=15, pady=10)
+    if st.session_state.res_tab3 is not None:
+        res3 = st.session_state.res_tab3
+        st.markdown("---")
+        st.metric("Рассчитанная мутность (C)", f"{res3['C_val']:.2f} ЕМ/дм³")
         
-        ttk.Label(frame, text="Текущее положение (делений 0–60):").grid(row=0, column=0, sticky='w', pady=4)
-        self.entry_S = ttk.Entry(frame, width=15)
-        self.entry_S.insert(0, "30")
-        self.entry_S.grid(row=0, column=1, padx=10, pady=4)
-        
-        ttk.Label(frame, text="Текущая частота КИМ (Гц):").grid(row=1, column=0, sticky='w', pady=4)
-        self.entry_f = ttk.Entry(frame, width=15)
-        self.entry_f.insert(0, "45.29")
-        self.entry_f.grid(row=1, column=1, padx=10, pady=4)
-        
-        btn_calc = ttk.Button(self.tab_plunger, text="РАССЧИТАТЬ ПОЛОЖЕНИЕ", command=self.calc_plunger)
-        btn_calc.pack(pady=8)
-        
-        self.lbl_plunger_res = ttk.Label(self.tab_plunger, text="", font=('Segoe UI', 10, 'bold'), justify='center')
-        self.lbl_plunger_res.pack(pady=5)
+        if res3['status_type'] == "success":
+            st.success(res3['status'])
+        elif res3['status_type'] == "info":
+            st.info(res3['status'])
+        elif res3['status_type'] == "warning":
+            st.warning(res3['status'])
+        else:
+            st.error(res3['status'])
 
-        self.btn_log_t4 = ttk.Button(self.tab_plunger, text="📋 Добавить запись в журнал", command=self.add_journal_t4, state='disabled')
-        self.btn_log_t4.pack(pady=5)
+        if st.button("📋 Добавить запись в журнал", key="btn_add_journal_t3"):
+            st.session_state.journal.append(res3['log_entry'])
+            st.toast("Результат измерения мутности добавлен в журнал!")
 
-    def calc_plunger(self):
-        try:
-            S = float(self.entry_S.get().replace(',', '.'))
-            f = float(self.entry_f.get().replace(',', '.'))
-            
-            S_new = min(max(round(S * (f / 35.0)), 0), 60)
-            
-            if f >= 42.0:
-                status_log = "Высокая частота (увеличьте ход)"
-            elif f <= 25.0:
-                status_log = "Низкая частота (уменьшите ход)"
-            else:
-                status_log = "В норме"
+# =============================================================================
+# ВКЛАДКА 5: НАСТРОЙКА ПЛУНЖЕРА
+# =============================================================================
+with tab4:
+    st.subheader("Показания КИМ АДКФ и лимба насоса Ареопаг")
+    st.caption("Цена деления шкалы лимба: 0.5 мм. Шкала включает 60 делений.")
+    
+    S_curr = st.number_input("Текущее положение лимба плунжера (S), делений (0–60)", value=30.0, step=1.0, min_value=0.0, max_value=60.0, key="t4_S")
+    f_curr = st.number_input("Текущая частота КИМ / ПЧ (f), Гц", value=45.29, step=0.5, key="t4_f")
 
-            res_text = f"Рекомендуемый ход плунжера: {S_new} делений (по шкале лимба)\nСтатус: {status_log}"
-            self.lbl_plunger_res.config(text=res_text, foreground="#A4262C" if status_log != "В норме" else "#107C41")
-            
-            self.last_res_t4 = {
+    if st.button("РАССЧИТАТЬ НОВОЕ ПОЛОЖЕНИЕ ЛИМБА", key="btn_calc_plunger"):
+        target_f = 35.0
+        S_new = S_curr * (f_curr / target_f)
+        S_new_clamped = min(max(round(S_new), 0), 60)
+
+        if f_curr >= 42.0:
+            msg = f"⚠️ Высокая частота КИМ ({f_curr:.1f} Гц)! Увеличьте ход плунжера с {S_curr:.0f} до {S_new_clamped} делений, чтобы сбросить частоту к ~35 Гц и разгрузить ЧРП."
+            status_type = "warning"
+            status_log = "Требуется подстройка (высокая f)"
+        elif f_curr <= 25.0:
+            msg = f"⚠️ Низкая частота КИМ ({f_curr:.1f} Гц)! Уменьшите ход плунжера с {S_curr:.0f} до {S_new_clamped} делений, чтобы поднять частоту к ~35 Гц."
+            status_type = "warning"
+            status_log = "Требуется подстройка (низкая f)"
+        else:
+            msg = "✅ КИМ АДКФ работает в нормальном диапазоне (20-50 Гц)."
+            status_type = "success"
+            status_log = "В норме"
+
+        st.session_state.res_tab4 = {
+            "S_new_clamped": S_new_clamped,
+            "msg": msg,
+            "status_type": status_type,
+            "log_entry": {
                 "Время": datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
                 "Модуль": "Настройка плунжера",
-                "Входные данные": f"S={S:.0f} дел., f={f:.1f} Гц",
-                "Результат": f"Реком. ход плунжера: {S_new} дел.",
+                "Входные данные": f"S={S_curr:.0f} дел., f={f_curr:.1f} Гц",
+                "Результат": f"Реком. ход плунжера: {S_new_clamped} дел.",
                 "Статус": status_log
             }
-            self.btn_log_t4.config(state='normal')
-        except ValueError:
-            messagebox.showerror("Ошибка", "Некорректные параметры плунжера")
+        }
 
-    def add_journal_t4(self):
-        if self.last_res_t4:
-            self.add_to_journal(self.last_res_t4)
-            messagebox.showinfo("Журнал", "Настройка плунжера добавлена в сменный журнал!")
+    if st.session_state.res_tab4 is not None:
+        res4 = st.session_state.res_tab4
+        st.markdown("---")
+        st.metric("Рекомендуемый ход плунжера", f"{res4['S_new_clamped']} делений (по шкале лимба)")
 
-    # =========================================================================
-    # 6. ВКЛАДКА: СМЕННЫЙ ЖУРНАЛ
-    # =========================================================================
-    def build_journal_tab(self):
-        frame = ttk.Frame(self.tab_journal, padding=10)
-        frame.pack(fill='both', expand=True)
+        if res4['status_type'] == "warning":
+            st.warning(res4['msg'])
+        else:
+            st.success(res4['msg'])
 
-        columns = ("Время", "Модуль", "Входные данные", "Результат", "Статус")
-        self.tree = ttk.Treeview(frame, columns=columns, show='headings', selectmode='browse')
+        if st.button("📋 Добавить запись в журнал", key="btn_add_journal_t4"):
+            st.session_state.journal.append(res4['log_entry'])
+            st.toast("Настройка плунжера добавлена в сменный журнал!")
+
+# =============================================================================
+# ВКЛАДКА 6: СМЕННЫЙ ЖУРНАЛ
+# =============================================================================
+with tab5:
+    st.subheader("Записи сменного журнала")
+    if st.session_state.journal:
+        df_journal = pd.DataFrame(st.session_state.journal)
+        st.dataframe(df_journal, use_container_width=True)
+
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            df_journal.to_excel(writer, index=False, sheet_name='Сменный_журнал')
         
-        self.tree.heading("Время", text="Время")
-        self.tree.heading("Модуль", text="Модуль")
-        self.tree.heading("Входные данные", text="Входные данные")
-        self.tree.heading("Результат", text="Результат")
-        self.tree.heading("Статус", text="Статус")
-
-        self.tree.column("Время", width=130, anchor='center')
-        self.tree.column("Модуль", width=150, anchor='w')
-        self.tree.column("Входные данные", width=200, anchor='w')
-        self.tree.column("Результат", width=250, anchor='w')
-        self.tree.column("Статус", width=120, anchor='center')
-
-        scrollbar = ttk.Scrollbar(frame, orient='vertical', command=self.tree.yview)
-        self.tree.configure(yscrollcommand=scrollbar.set)
-        
-        self.tree.pack(side='left', fill='both', expand=True)
-        scrollbar.pack(side='right', fill='y')
-
-        btn_frame = ttk.Frame(self.tab_journal, padding=10)
-        btn_frame.pack(fill='x')
-
-        btn_export = ttk.Button(btn_frame, text="💾 Скачать журнал в Excel (.xlsx)", command=self.export_excel)
-        btn_export.pack(side='left', padx=10)
-
-        btn_clear = ttk.Button(btn_frame, text="🗑 Очистить журнал", command=self.clear_journal)
-        btn_clear.pack(side='right', padx=10)
-
-    def add_to_journal(self, entry):
-        self.journal.append(entry)
-        self.tree.insert("", "end", values=(
-            entry["Время"],
-            entry["Модуль"],
-            entry["Входные данные"],
-            entry["Результат"],
-            entry["Статус"]
-        ))
-
-    def export_excel(self):
-        if not self.journal:
-            messagebox.showwarning("Предупреждение", "Сменный журнал пуст!")
-            return
-        
-        file_path = filedialog.asksaveasfilename(
-            defaultextension=".xlsx",
-            filetypes=[("Excel Files", "*.xlsx")],
-            initialfile=f"Сменный_журнал_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+        st.download_button(
+            label="💾 Скачать журнал в Excel (.xlsx)",
+            data=buffer.getvalue(),
+            file_name=f"Сменный_журнал_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        if file_path:
-            df = pd.DataFrame(self.journal)
-            df.to_excel(file_path, index=False)
-            messagebox.showinfo("Успех", f"Файл успешно сохранен:\n{file_path}")
+        
+        if st.button("🗑 Очистить журнал", key="btn_clear_journal"):
+            st.session_state.journal = []
+            st.rerun()
+    else:
+        st.info("Журнал пуст. Выполните расчеты на вкладках, чтобы записи появились здесь.")
 
-    def clear_journal(self):
-        if messagebox.askyesno("Подтверждение", "Очистить весь сменный журнал?"):
-            self.journal.clear()
-            for item in self.tree.get_children():
-                self.tree.delete(item)
+# =============================================================================
+# ВКЛАДКА 7: ПАМЯТКА И РАСЧЕТЫ
+# =============================================================================
+with tab6:
+    st.subheader("📖 Справочная памятка по расчетам водоочистки")
+    st.caption("Подробный математический и приборный разбор модулей ТМК СинТЗ Энергоцех Чемезов")
 
-    # =========================================================================
-    # 7. ВКЛАДКА: ПАМЯТКА И РАСЧЕТЫ
-    # =========================================================================
-    def build_memo_tab(self):
-        txt_area = ScrolledText(self.tab_memo, font=('Consolas', 10), wrap='word', padding=10)
-        txt_area.pack(fill='both', expand=True)
+    with st.expander("⚡ 1. Аппаратные контрольные параметры фотометрического блока КИМ (диагностика и нормы)", expanded=True):
+        st.markdown("""
+        Окно **«Контрольные параметры»** предназначено для непрерывной самодиагностики оптики, электроники и термостатирования измерительного блока КИМ:
 
-        memo_text = """ СПРАВОЧНАЯ ПАМЯТКА И ФОРМУЛЫ ВОДОПОДГОТОВКИ
-==============================================================================
-ТМК СинТЗ — Энергоцех Чемезов
+        | Параметр | Нормативный диапазон | Назначение и физический смысл |
+        | :--- | :--- | :--- |
+        | **$U_{\\text{фото}}$ (В)** | **$1.00 \\dots 1.40$** (чистая вода)<br>**$0.35 \\dots 0.90$** (рабочие пробы) | Напряжение фотоприемника. Отражает светопропускание кюветы. Падение ниже $0.30\\dots0.35\\text{ В}$ — сигнал сильного загрязнения стекол. |
+        | **$U_{\\text{всп}}$ (В)** | **$5.740 \\dots 5.750$** | Опорное напряжение питания платы излучателя и аналоговых цепей. |
+        | **$I_{\\text{осв}}$ (мА)** | **$3.800 \\dots 3.820$** | Ток излучающего светодиода фотометра (генератор стабильного тока). |
+        | **$T_{\\text{фото}}$ (°C)** | **$44.0 \\dots 46.0$** | Температура фотоприемника в термостатированном отсеке. |
+        | **$T_{\\text{осв}}$ (°C)** | **$45.5 \\dots 47.5$** | Температура светодиода (на $1\\dots1.5^\\circ\\text{C}$ выше $T_{\\text{фото}}$ из-за нагрева кристалла). |
+        | **$UpH1$ (В)** | **$-4.960 \\dots -4.980$** | Опорное напряжение смещения высокоомного усилителя тракта измерения pH. |
+        | **$T_{\\text{воды}}$ (°C)** | **Сезонная норма** ($5 \\dots 25$) | Фактическая температура анализируемой воды (датчик термокомпенсации). |
+        | **$U_{\\text{сети}}$ (В)** | **$210 \\dots 240$** | Напряжение сети электропитания стойки автоматики (норма $220\\dots235\\text{ В}$). |
 
-------------------------------------------------------------------------------
-1. КОНТРОЛЬНЫЕ АППАРАТНЫЕ ПАРАМЕТРЫ ФОТОМЕТРИЧЕСКОГО БЛОКА КИМ
-------------------------------------------------------------------------------
-Окно «Контрольные параметры» служит для непрерывной самодиагностики оптики:
+        ---
 
-• U_фото (напряжение фотоприемника):
-  - Норма на чистой воде (при калибровке): 1.00 ... 1.40 В (обычно 1.09–1.38 В).
-  - Рабочие пробы: 0.35 ... 0.90 В (падает пропорционально мутности).
-  - Критическое загрязнение стекол: < 0.30 ... 0.35 В (требуется стеклоочистка).
-  * ВНИМАНИЕ: Если калибровать при U_фото < 0.50 В, контроллер завысит усиление,
-    что вызовет ложные скачки мутности готовой воды до 20–30 ЕМ/дм³!
-
-• U_всп: 5.740 ... 5.750 В (стабилизированное опорное питание излучателя).
-• I_осв: 3.800 ... 3.820 мА (ток светодиода, генератор стабильного тока).
-• T_фото: 44.0 ... 46.0 °C (термостатирование фотоприемника).
-• T_осв: 45.5 ... 47.5 °C (температура светодиода, выше T_фото на 1–1.5 °C).
-• UpH1: -4.960 ... -4.980 В (опорный потенциал аналогового тракта pH).
-• T_воды: 5 ... 25 °C (сезонная температура, термокомпенсация pH).
-• U_сети: 210 ... 240 В (сетевое напряжение шкафа автоматики, норма 220–235 В).
-
-* Зачем кювета термостатируется до ~45 °C:
-  1) Защита от конденсата («точки росы») при анализе холодной воды (11 °C).
-  2) Устранение температурного дрейфа фотодиода.
-
-------------------------------------------------------------------------------
-2. ТЕХНОЛОГИЧЕСКИЙ РЕГЛАМЕНТ БЕЗОПАСНОГО ИЗМЕНЕНИЯ ДОЗИРОВОК
-------------------------------------------------------------------------------
-• Максимальный безопасный разовый шаг: не более +0.50 ... +0.80 мг/л.
-• Технологический интервал между шагами: 15–20 минут (время полного отклика).
-
-• Риски резкого залпового увеличения дозировки:
-  1) Перезарядка коллоидов (рестабилизация): при избытке Al³+ частицы мути
-     приобретают положительный заряд и перестают слипаться, образуя вторичную муть.
-  2) Проскок остаточного алюминия: превышение нормы Al_ост > 0.2 мг/л в готовой воде
-     и зарастание трубопроводов осадком.
-  3) Падение pH: закисление среды и блокировка гидролиза коагулянта.
-  4) Кольматация песчаных фильтров: превышение дозы флокулянта > 0.75 мг/л
-     образует резинистую пленку на кварцевом песке.
-
-------------------------------------------------------------------------------
-3. ПРОБНАЯ КОАГУЛЯЦИЯ (JAR TEST И АВТОМАТИЧЕСКИЙ РЕЖИМ ПК УНИТОК)
-------------------------------------------------------------------------------
-А. АВТОМАТИЧЕСКИЙ РЕЖИМ ПК УНИТОК (индекс скорости V в строке 3.ПК):
-• V >= 0.800 (Норма): быстрое формирование плотных хлопьев, стабильное «одеяло».
-• 0.500 <= V < 0.800 (Погранично): вялая кинетика, прибавка +0.40 мг/л.
-• V < 0.500 (Критически мало / вынос): прибавка +0.90 мг/л ступенчато (+0.80 мг/л
-  на первом шаге) и продувка шламоуплотнителей.
-
-Б. ЛАБОРАТОРНЫЙ JAR TEST:
-1. Быстрое перемешивание: 120–180 об/мин (45–60 сек) с «Эпоха».
-2. Медленное перемешивание: 30–45 об/мин (10–15 мин) с «ЭкоПлюс».
-3. Отстаивание: 0 об/мин (покой, 15–20 мин). Скорость оседания >= 2–3 мм/с.
-
-------------------------------------------------------------------------------
-4. ДОЗИРОВАНИЕ РЕАГЕНТОВ И СООТНОШЕНИЕ 22:1
-------------------------------------------------------------------------------
-• Коагулянт «Эпоха» (Al³+): 10–18 мг/л.
-• Флокулянт «ЭкоПлюс» (ПАА): предел 0.75 мг/л (СП 31.13330.2012).
-• Соотношение 22:1: 16.5 / 22 = 0.75 мг/л (защита фильтров от забивания).
-• Формула расхода насоса: q = (Q * D) / (10 * C * rho) л/ч.
-
-------------------------------------------------------------------------------
-5. ГЕОМЕТРИЧЕСКИЙ РАСЧЕТ ОСТАТКА В РЕЗЕРВУАРАХ (В МЕТРАХ)
-------------------------------------------------------------------------------
-Замер рулеткой (h_зам) от верхнего края. Глубина от дна: y = H_макс - h_зам.
-
-• 1. Резервуар расходный (Машзал, 2.8 x 2.8 x 2.5 м):
-  V = 7840 * (2.50 - h_зам) л. Полная емкость: 19 600 л (19.60 м³).
-
-• 2. Резервуар №1 (Склад, 5.8 x 5.8 м, уклон 0.30 м):
-  - При y <= 0.30 м: V = 56 067 * y² л.
-  - При y > 0.30 м: V = 5 046 + 33 640 * (y - 0.30) л.
-  Полная емкость: 89 146 л (89.15 м³).
-
-• 3. Резервуар №4 (Склад, 2.8 x 5.8 м, уклон 0.70 м):
-  - При y <= 0.70 м: V = 11 600 * y² л.
-  - При y > 0.70 м: V = 5 684 + 16 240 * (y - 0.70) л.
-  Полная емкость: 49 532 л (49.53 м³).
-
-------------------------------------------------------------------------------
-6. ФОТОМЕТРИЯ ПЭ-5300ВИ И НАСОСЫ «АРЕОПАГ»
-------------------------------------------------------------------------------
-• Мутность (ПНД Ф 14.1:2:4.213-05): C = (D - 0.002417294) / 0.009347066.
-• Плунжер «Ареопаг»: Шкала 0–60 делений (0.5 мм/дел). Целевая f = 35.0 Гц.
-==============================================================================
-"""
-        txt_area.insert('1.0', memo_text)
-        txt_area.config(state='disabled')
-
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = TMKWaterAppDesktop(root)
-    root.mainloop()
+        #### Правила калибровки нуля и исключение ложных пиков мутности:
+        1. **Критическое правило нуля:** Перед проведением калибровки нуля по чистой воде опорное напряжение $U_{\\text{фото}}$ должно быть строго **$\ge 1.00\\text{ В}$** (обычно $1.09\\dots1.38\\text{ В}$).
+        2. **Причина ложных выбросов ($M > 20\\text{ ЕМ}$):
